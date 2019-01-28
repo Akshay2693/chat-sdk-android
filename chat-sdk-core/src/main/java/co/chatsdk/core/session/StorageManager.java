@@ -15,7 +15,6 @@ import co.chatsdk.core.dao.User;
 import co.chatsdk.core.dao.UserThreadLink;
 import co.chatsdk.core.dao.UserThreadLinkDao;
 import co.chatsdk.core.interfaces.CoreEntity;
-import co.chatsdk.core.interfaces.StorageAdapter;
 import timber.log.Timber;
 
 import static co.chatsdk.core.dao.DaoCore.daoSession;
@@ -28,10 +27,27 @@ import static co.chatsdk.core.dao.DaoCore.fetchEntityWithProperty;
 public class StorageManager {
 
     private final static StorageManager instance = new StorageManager();
-    public StorageAdapter a;
 
     public static StorageManager shared() {
         return instance;
+    }
+
+    public List<Thread> fetchThreadsForUserWithID (Long userId) {
+        List<Thread> threads = new ArrayList<>();
+
+        List<UserThreadLink> links = DaoCore.fetchEntitiesWithProperty(UserThreadLink.class, UserThreadLinkDao.Properties.UserId, ChatSDK.currentUser().getId());
+
+        for (UserThreadLink link : links) {
+            Thread thread = link.getThread();
+            if (thread != null) {
+                threads.add(thread);
+            }
+            else {
+                // Delete the link - it's obviously corrupted
+                DaoCore.deleteEntity(link);
+            }
+        }
+        return threads;
     }
 
     public <T extends CoreEntity> T fetchOrCreateEntityWithEntityID(Class<T> c, String entityId){
@@ -43,7 +59,7 @@ public class StorageManager {
             entity = DaoCore.getEntityForClass(c);
 
             if(entityId instanceof String) {
-                entity.setEntityID((String) entityId);
+                entity.setEntityID(entityId);
             }
             else {
                 entity.setEntityID(entityId.toString());
@@ -96,13 +112,14 @@ public class StorageManager {
     }
 
     public List<Thread> allThreads () {
-        List<UserThreadLink> links =  DaoCore.fetchEntitiesWithProperty(UserThreadLink.class, UserThreadLinkDao.Properties.UserId, NM.currentUser().getId());
+        List<UserThreadLink> links =  DaoCore.fetchEntitiesWithProperty(UserThreadLink.class, UserThreadLinkDao.Properties.UserId, ChatSDK.currentUser().getId());
         ArrayList<Thread> threads = new ArrayList<>();
         for(UserThreadLink link : links) {
             threads.add(link.getThread());
         }
         return threads;
     }
+
 
     public List<Message> fetchMessagesForThreadWithID (long threadID, int limit) {
         return fetchMessagesForThreadWithID(threadID, limit, null);

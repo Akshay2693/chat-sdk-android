@@ -16,9 +16,10 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Build;
 import android.os.Bundle;
-import android.support.v7.app.AppCompatActivity;
+
+import androidx.annotation.NonNull;
+import androidx.appcompat.app.AppCompatActivity;
 import android.util.TypedValue;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.inputmethod.InputMethodManager;
@@ -30,13 +31,14 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
+import co.chatsdk.core.session.ChatSDK;
+import co.chatsdk.core.utils.PermissionRequestHandler;
 import co.chatsdk.ui.R;
-import co.chatsdk.ui.utils.AppBackgroundMonitor;
 import co.chatsdk.ui.utils.ToastHelper;
 
 public class BaseActivity extends AppCompatActivity {
 
-    private ProgressDialog progressDialog;
+    protected ProgressDialog progressDialog;
 
     public BaseActivity() {
     }
@@ -92,13 +94,11 @@ public class BaseActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        AppBackgroundMonitor.shared().stopActivityTransitionTimer();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        AppBackgroundMonitor.shared().startActivityTransitionTimer();
     }
 
     @Override
@@ -127,12 +127,9 @@ public class BaseActivity extends AppCompatActivity {
      * http://stackoverflow.com/questions/4165414/how-to-hide-soft-keyboard-on-android-after-clicking-outside-edittext
      * */
     public void setupTouchUIToDismissKeyboard(View view) {
-        setupTouchUIToDismissKeyboard(view, new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                hideSoftKeyboard(BaseActivity.this);
-                return false;
-            }
+        setupTouchUIToDismissKeyboard(view, (v, event) -> {
+            hideSoftKeyboard(BaseActivity.this);
+            return false;
         }, -1);
     }
 
@@ -214,10 +211,14 @@ public class BaseActivity extends AppCompatActivity {
                 progressDialog.dismiss();
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            ChatSDK.logError(e);
         }
     }
 
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        PermissionRequestHandler.shared().onRequestPermissionsResult(this, requestCode, permissions, grantResults);
+    }
+
 }
-
-

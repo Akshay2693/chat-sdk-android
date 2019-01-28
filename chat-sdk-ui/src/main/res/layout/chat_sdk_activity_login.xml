@@ -10,7 +10,6 @@
     <ScrollView
     android:layout_width="match_parent"
     android:layout_height="match_parent">
-
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="match_parent"
@@ -99,8 +98,8 @@
 
                 <Button
                     android:id="@+id/chat_sdk_btn_twitter_login"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
                     android:background="@drawable/ic_twitter"
                     android:layout_marginTop="8dp"
                     android:layout_marginLeft="8dp"
@@ -108,22 +107,32 @@
 
                 <Button
                     android:id="@+id/chat_sdk_btn_facebook_login"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
                     android:layout_marginTop="8dp"
                     android:background="@drawable/ic_facebook"
                     android:layout_marginLeft="8dp" />
 
                 <Button
                     android:id="@+id/chat_sdk_btn_google_login"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                    android:layout_width="50dp"
+                    android:layout_height="50dp"
                     android:layout_marginTop="8dp"
                     android:background="@drawable/ic_google"
                     android:layout_marginLeft="8dp" />
 
             </LinearLayout>
-        </LinearLayout>
 
+            <Space
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
+
+            <Button
+                android:id="@+id/chat_sdk_btn_reset_password"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/reset_password" />
+        </LinearLayout>
     </ScrollView>
 </LinearLayout>

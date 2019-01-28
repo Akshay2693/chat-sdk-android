@@ -2,13 +2,14 @@ apply plugin: 'com.android.library'
 
 buildscript {
     repositories {
+        google()
+        maven { url "https://jitpack.io" }
         jcenter()
-        mavenCentral()
     }
 
     dependencies {
-        classpath 'com.jfrog.bintray.gradle:gradle-bintray-plugin:1.7.3'
-        classpath 'com.github.dcendents:android-maven-gradle-plugin:1.4.1'
+        classpath "com.jfrog.bintray.gradle:gradle-bintray-plugin:$bintrayVersion"
+        classpath "com.github.dcendents:android-maven-gradle-plugin:$mavenGradleVersion"
     }
 }
 
@@ -17,59 +18,46 @@ apply plugin: 'com.jfrog.bintray'
 android {
 
     compileSdkVersion Integer.parseInt(project.ANDROID_COMPILE_SDK_VERSION)
-    buildToolsVersion project.ANDROID_BUILD_TOOLS_VERSION
 
     defaultConfig {
         minSdkVersion Integer.parseInt(project.MIN_SDK)
         targetSdkVersion Integer.parseInt(project.ANDROID_BUILD_TARGET_SDK_VERSION)
     }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
 }
 
 dependencies {
-    compile fileTree(include: ['*.jar'], dir: 'libs')
+    implementation fileTree(include: ['*.jar'], dir: 'libs')
+    implementation project(':chat-sdk-core')
 
-    compile 'com.google.firebase:firebase-core:' + project.GOOGLE_SERVICES_VERSION
-    compile 'com.google.firebase:firebase-database:' + project.GOOGLE_SERVICES_VERSION
-    compile 'com.google.firebase:firebase-storage:' + project.GOOGLE_SERVICES_VERSION
-    compile 'com.google.firebase:firebase-auth:' + project.GOOGLE_SERVICES_VERSION
+    // The latest versions aren't used because of Firebase UI - see: https://github.com/firebase/FirebaseUI-Android/releases
+    implementation "com.google.firebase:firebase-core:$firebaseCoreVersion"
+    api "com.google.firebase:firebase-database:$firebaseDatabaseVersion"
+    api "com.google.firebase:firebase-auth:$firebaseAuthVersion"
 
-    compile project(':chat-sdk-core')
+    implementation "com.jakewharton.timber:timber:$timberVersion"
+
+    // Fix dependency issue from firebase-core:16.0.5 -> firebase-iid:17.0.3
+    // Can likely be removed later
+    implementation "com.google.firebase:firebase-iid:17.0.4"
+
+    implementation "org.apache.commons:commons-lang3:$apacheCommonsVersion"
+
 }
 
-// Bintray upload properties
-Properties properties = new Properties()
-properties.load(project.rootProject.file('local.properties').newDataInputStream())
-if(properties.getProperty('bintray.enabled') != null) {
+ext {
+    bintrayName = 'chat-sdk-firebase-adapter'
+    libraryName = 'ChatSDKFirebaseAdapter'
+    artifact = 'chat-sdk-firebase-adapter'
+    libraryDescription = 'Chat SDK Firebase Adapter'
+}
 
-    group = CHAT_SDK_GROUP
-    version = CHAT_SDK_VERSION
-
-    ext {
-        bintrayRepo = BINTRAY_REPO
-        bintrayName = 'chat-sdk-firebase-adapter'
-        bintrayUserOrg = BINTRAY_USER_ORG
-
-        publishedGroupId = CHAT_SDK_GROUP
-        libraryName = 'ChatSDKFirebaseAdapter'
-        artifact = 'chat-sdk-firebase-adapter'
-
-        libraryDescription = 'Chat SDK Firebase Adapter'
-
-        siteUrl = SITE_URL
-        gitUrl = GIT_URL
-
-        libraryVersion = CHAT_SDK_VERSION
-
-        developerId = DEVELOPER_ID
-        developerName = DEVELOPER_NAME
-        developerEmail = DEVELOPER_EMAIL
-
-        licenseName = LICENSE_NAME
-        licenseUrl = LICENSE_URL
-        allLicenses = ['GPL-3.0']
-    }
-
-    apply from: 'https://raw.githubusercontent.com/chat-sdk/JCenter/master/installv1.gradle'
-    apply from: 'https://raw.githubusercontent.com/chat-sdk/JCenter/master/bintrayv1.gradle'
+def bintrayGradleFile = file("$rootProject.rootDir/gradle/bintray.gradle")
+if (bintrayGradleFile.exists()) {
+    apply from: bintrayGradleFile
 }
 

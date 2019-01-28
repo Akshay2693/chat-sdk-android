@@ -12,6 +12,8 @@ import android.content.Context;
 
 import java.util.concurrent.Callable;
 
+import co.chatsdk.core.session.ChatSDK;
+
 @Deprecated
 public class DialogUtils {
 
@@ -27,30 +29,26 @@ public class DialogUtils {
         alertDialogBuilder
                 .setMessage(alert)
                 .setCancelable(false)
-                .setPositiveButton(p, new android.content.DialogInterface.OnClickListener() {
-                    public void onClick(android.content.DialogInterface dialog, int id) {
-                        if (pos != null)
-                            try {
-                                pos.call();
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        dialog.dismiss();
-                    }
+                .setPositiveButton(p, (dialog, id) -> {
+                    if (pos != null)
+                        try {
+                            pos.call();
+                        } catch (Exception e) {
+                            ChatSDK.logError(e);
+                        }
+                    dialog.dismiss();
                 })
-                .setNegativeButton(n, new android.content.DialogInterface.OnClickListener() {
-                    public void onClick(android.content.DialogInterface dialog, int id) {
-                        // if this button is clicked, just close
-                        // the dialog box and do nothing
-                        if (neg != null)
-                            try {
-                                neg.call();
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
+                .setNegativeButton(n, (dialog, id) -> {
+                    // if this button is clicked, just close
+                    // the dialog box and do nothing
+                    if (neg != null)
+                        try {
+                            neg.call();
+                        } catch (Exception e) {
+                            ChatSDK.logError(e);
+                        }
 
-                        dialog.cancel();
-                    }
+                    dialog.cancel();
                 });
 
         // create alert dialog

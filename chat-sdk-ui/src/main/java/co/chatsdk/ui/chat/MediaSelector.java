@@ -1,22 +1,22 @@
 package co.chatsdk.ui.chat;
 
 import android.app.Activity;
+import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
-import android.graphics.Bitmap;
 import android.net.Uri;
 import android.provider.MediaStore;
-import android.support.v7.app.AppCompatActivity;
+import androidx.appcompat.app.AppCompatActivity;
 
-import com.soundcloud.android.crop.Crop;
+import com.theartofdev.edmodo.cropper.CropImage;
 
 import java.io.File;
 
-import co.chatsdk.core.dao.DaoCore;
 import co.chatsdk.core.session.ChatSDK;
 import co.chatsdk.core.utils.ImageUtils;
 import co.chatsdk.ui.R;
 import co.chatsdk.ui.utils.Cropper;
+import timber.log.Timber;
 
 import static android.app.Activity.RESULT_OK;
 
@@ -26,12 +26,20 @@ import static android.app.Activity.RESULT_OK;
 
 public class MediaSelector {
 
-    public static final int TAKE_PHOTO = 100;
-    public static final int CHOOSE_PHOTO = 101;
-    public static final int TAKE_VIDEO = 102;
-    public static final int CHOOSE_VIDEO = 103;
-    private String filePath;
-    private Result resultHandler;
+    private static final int TAKE_PHOTO = 100;
+    private static final int CHOOSE_PHOTO = 101;
+    private static final int TAKE_VIDEO = 102;
+    private static final int CHOOSE_VIDEO = 103;
+
+    protected Result resultHandler;
+    protected CropType cropType = CropType.Rectangle;
+    protected Uri fileUri;
+
+    public enum CropType {
+        Rectangle,
+        Square,
+        Circle,
+    }
 
     public interface Result {
         void result (String result);
@@ -40,7 +48,12 @@ public class MediaSelector {
     public void startTakePhotoActivity (Activity activity, Result resultHandler) throws Exception {
         this.resultHandler = resultHandler;
 
+        Context context = ChatSDK.shared().context();
         Intent intent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+        File destination = ImageUtils.createEmptyFileInCacheDirectory(context, "CAPTURE", ".jpg");
+        fileUri = PhotoProvider.getPhotoUri(destination, context);
+        intent.putExtra(MediaStore.EXTRA_OUTPUT, fileUri);
+
         if (intent.resolveActivity(activity.getPackageManager()) != null) {
             activity.startActivityForResult(intent, TAKE_PHOTO);
         }
@@ -63,13 +76,14 @@ public class MediaSelector {
         activity.startActivityForResult(intent , CHOOSE_VIDEO);
     }
 
-    public void startChooseImageActivity(Activity activity, Result resultHandler) {
+    public void startChooseImageActivity(Activity activity, CropType cropType, Result resultHandler) {
+        this.cropType = cropType;
         this.resultHandler = resultHandler;
         Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
         activity.startActivityForResult(intent, CHOOSE_PHOTO);
     }
 
-    private void processPickedPhoto(Activity activity, int resultCode, Intent data) throws Exception {
+    protected void processPickedPhoto(Activity activity, int resultCode, Intent data) throws Exception {
 
         switch (resultCode)
         {
@@ -77,36 +91,20 @@ public class MediaSelector {
 
                 Uri uri = data.getData();
 
-                if(!ChatSDK.config().imageCroppingEnabled) {
-
-                    Uri pickedImage = data.getData();
-                    // Let's read picked image path using content resolver
-                    String[] filePath = { MediaStore.Images.Media.DATA };
-                    Cursor cursor = activity.getContentResolver().query(pickedImage, filePath, null, null, null);
-                    cursor.moveToFirst();
-                    String imagePath = cursor.getString(cursor.getColumnIndex(filePath[0]));
-
+                if (!ChatSDK.config().imageCroppingEnabled) {
+                    String imagePath = pathFromURI(uri, activity, MediaStore.Images.Media.DATA);
                     handleImageFile(activity, imagePath);
                 }
                 else {
-                    filePath = DaoCore.generateRandomName();
-
-                    // If enabled we will save the messageImageView to the app
-                    // directory in gallery else we will save it in the cache dir.
-                    File dir = activity.getCacheDir();
-
-                    if (dir == null) {
-                        throw new Exception(activity.getString(R.string.unable_to_fetch_image));
+                    if (cropType == CropType.Circle) {
+                        Cropper.startCircleActivity(activity, uri);
                     }
-
-                    Uri outputUri = Uri.fromFile(new File(dir, filePath + ".jpeg"));
-
-                    Cropper crop = new Cropper(uri);
-
-                    Intent cropIntent = crop.getAdjustIntent(activity, outputUri);
-                    int request = Crop.REQUEST_CROP + CHOOSE_PHOTO;
-
-                    activity.startActivityForResult(cropIntent, request);
+                    else if (cropType == CropType.Square) {
+                        Cropper.startSquareActivity(activity, uri);
+                    }
+                    else {
+                        Cropper.startActivity(activity, uri);
+                    }
                 }
 
                 break;
@@ -115,28 +113,43 @@ public class MediaSelector {
         }
     }
 
-    private void processCroppedPhoto(Activity activity, int resultCode, Intent data) throws Exception {
-
-        if (resultCode == Crop.RESULT_ERROR || resultCode == AppCompatActivity.RESULT_CANCELED) {
-            throw new Exception();
+    protected String pathFromURI (Uri uri, Activity activity, String column) {
+        File file = null;
+        if (uri.getPath() != null) {
+            file = new File(uri.getPath());
         }
+        if (file != null && file.length() > 0) {
+            return uri.getPath();
+        }
+        else {
+            // Try to get it another way for this kind of URL
+            // content://media/external ...
+            String [] filePathColumn = { column };
+            Cursor cursor = activity.getContentResolver().query(uri, filePathColumn,null, null, null);
+            if (cursor != null) {
+                cursor.moveToFirst();
+                return cursor.getString(cursor.getColumnIndex(filePathColumn[0]));
+            }
+        }
+        return null;
+    }
 
-        try {
-            // If enabled we will save the messageImageView to the app
-            // directory in gallery else we will save it in the cache dir.
-            File dir = activity.getCacheDir();
+    protected void processCroppedPhoto(Activity activity, int resultCode, Intent data) throws Exception {
 
-            if (dir == null) {
+        CropImage.ActivityResult result = CropImage.getActivityResult(data);
+
+        if (resultCode == CropImage.CROP_IMAGE_ACTIVITY_RESULT_ERROR_CODE || resultCode == AppCompatActivity.RESULT_CANCELED) {
+            throw new Exception(result.getError());
+        }
+        else if (resultCode == RESULT_OK) {
+            try {
+                handleImageFile(activity, result.getUri().getPath());
+            }
+            catch (NullPointerException e){
                 throw new Exception(activity.getString(R.string.unable_to_fetch_image));
             }
-
-            File image = new File(dir, filePath + ".jpeg");
-
-            handleImageFile(activity, image.getPath());
         }
-        catch (NullPointerException e){
-            throw new Exception(activity.getString(R.string.unable_to_fetch_image));
-        }
+
     }
 
     public void handleImageFile (Activity activity, String path) {
@@ -146,48 +159,37 @@ public class MediaSelector {
             ImageUtils.scanFilePathForGallery(activity, path);
         }
 
-        if(resultHandler != null) {
+        if (resultHandler != null) {
             resultHandler.result(path);
             clear();
         }
     }
 
     public void handleResult (Activity activity, int requestCode, int resultCode, Intent intent) throws Exception {
+
         if (requestCode == CHOOSE_PHOTO) {
             processPickedPhoto(activity, resultCode, intent);
         }
-        else if (requestCode == Crop.REQUEST_CROP + CHOOSE_PHOTO) {
+        else if (requestCode == CropImage.CROP_IMAGE_ACTIVITY_REQUEST_CODE) {
             processCroppedPhoto(activity, resultCode, intent);
         }
-        /* Capture messageImageView logic*/
+
         else if (requestCode == TAKE_PHOTO && resultCode == RESULT_OK) {
-            if(resultHandler != null) {
-                Bitmap bitmap = (Bitmap) intent.getExtras().get("data");
-                File file = ImageUtils.saveImageToCache(activity, bitmap);
+            if(resultHandler != null && fileUri != null) {
+                activity.getContentResolver().notifyChange(fileUri, null);
+                String path = pathFromURI(fileUri, activity, MediaStore.Images.Media.DATA);
+                File file = ImageUtils.compressImageToFile(activity, path, "COMPRESSED", "jpg");
                 resultHandler.result(file.getPath());
                 clear();
             }
         }
-        else if (requestCode == TAKE_VIDEO && resultCode == RESULT_OK) {
-            if(resultHandler != null) {
+        else if (requestCode == TAKE_VIDEO || requestCode == CHOOSE_VIDEO && resultCode == RESULT_OK && resultHandler != null) {
                 Uri videoUri = intent.getData();
-                resultHandler.result(videoUri.getPath());
+                resultHandler.result(pathFromURI(videoUri, activity, MediaStore.Video.Media.DATA ));
                 clear();
-            }
         }
-        else if (requestCode == CHOOSE_VIDEO && resultCode == RESULT_OK) {
-            if(resultHandler != null) {
-                Uri videoUri = intent.getData();
-
-                // Let's read picked image path using content resolver
-                String[] filePath = { MediaStore.Video.Media.DATA };
-                Cursor cursor = activity.getContentResolver().query(videoUri, filePath, null, null, null);
-                cursor.moveToFirst();
-                String videoPath = cursor.getString(cursor.getColumnIndex(filePath[0]));
-
-                resultHandler.result(videoPath);
-                clear();
-            }
+        else {
+            Timber.d("Error handling photo");
         }
     }
 

@@ -7,7 +7,7 @@
 
 package co.chatsdk.ui.contacts;
 
-import android.support.v7.widget.RecyclerView;
+import androidx.recyclerview.widget.RecyclerView;
 import android.util.SparseBooleanArray;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -33,43 +33,43 @@ import timber.log.Timber;
 
 public class UsersListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
-    private static final int TYPE_USER = 0;
-    private static final int TYPE_HEADER = 1;
+    protected static final int TYPE_USER = 0;
+    protected static final int TYPE_HEADER = 1;
 
-    private List<Object> items = new ArrayList<>();
-    private List<String> headers = new ArrayList<>();
+    protected List<Object> items = new ArrayList<>();
+    protected List<String> headers = new ArrayList<>();
 
-    private SparseBooleanArray selectedUsersPositions = new SparseBooleanArray();
+    protected SparseBooleanArray selectedUsersPositions = new SparseBooleanArray();
 
-    private boolean isMultiSelect = false;
-    private final PublishSubject<Object> onClickSubject = PublishSubject.create();
+    protected boolean isMultiSelect = false;
+    protected final PublishSubject<Object> onClickSubject = PublishSubject.create();
 
-    private class HeaderViewHolder extends RecyclerView.ViewHolder {
+    protected class HeaderViewHolder extends RecyclerView.ViewHolder {
 
         TextView textView;
 
         public HeaderViewHolder(View itemView) {
             super(itemView);
-            textView = (TextView) itemView.findViewById(R.id.header_text);
+            textView = itemView.findViewById(R.id.header_text);
         }
     }
 
-    private class UserViewHolder extends RecyclerView.ViewHolder {
+    protected class UserViewHolder extends RecyclerView.ViewHolder {
 
-        SimpleDraweeView avatarImageView;
-        TextView nameTextView;
-        CheckBox checkBox;
-        TextView statusTextView;
-        ImageView availabilityImageView;
+        protected SimpleDraweeView avatarImageView;
+        protected TextView nameTextView;
+        protected CheckBox checkBox;
+        protected TextView statusTextView;
+        protected ImageView availabilityImageView;
 
         public UserViewHolder(View view) {
             super(view);
 
-            nameTextView = (TextView) view.findViewById(R.id.chat_sdk_txt);
-            statusTextView = (TextView) view.findViewById(R.id.tvStatus);
-            availabilityImageView = (ImageView) view.findViewById(R.id.ivAvailability);
-            avatarImageView = (SimpleDraweeView) view.findViewById(R.id.img_profile_picture);
-            checkBox = (CheckBox) view.findViewById(R.id.checkbox);
+            nameTextView = view.findViewById(R.id.chat_sdk_txt);
+            statusTextView = view.findViewById(R.id.tvStatus);
+            availabilityImageView = view.findViewById(R.id.ivAvailability);
+            avatarImageView = view.findViewById(R.id.img_profile_picture);
+            checkBox = view.findViewById(R.id.checkbox);
 
             // Clicks are handled at the list item level
             checkBox.setClickable(false);
@@ -132,12 +132,7 @@ public class UsersListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
         int type = getItemViewType(position);
         final Object item = items.get(position);
 
-        holder.itemView.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                onClickSubject.onNext(item);
-            }
-        });
+        holder.itemView.setOnClickListener(view -> onClickSubject.onNext(item));
 
         if(type == TYPE_HEADER) {
             HeaderViewHolder hh = (HeaderViewHolder) holder;
@@ -192,23 +187,26 @@ public class UsersListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
         addUser(user, false);
     }
 
-    public void addUser (UserListItem user, boolean notify) {
-        if(!items.contains(user)) {
-            items.add(user);
-            if(notify) {
-                notifyDataSetChanged();
-            }
-        }
-    }
 
     public List<Object> getItems () {
         return items;
     }
 
+    public void addUser (UserListItem user, boolean notify) {
+        addUser(user, -1, notify);
+    }
+
     public void addUser (UserListItem user, int atIndex, boolean notify) {
-        items.add(atIndex, user);
-        if(notify) {
-            notifyDataSetChanged();
+        if(!items.contains(user)) {
+            if (atIndex >= 0) {
+                items.add(atIndex, user);
+            }
+            else {
+                items.add(user);
+            }
+            if(notify) {
+                notifyDataSetChanged();
+            }
         }
     }
 
@@ -261,20 +259,17 @@ public class UsersListAdapter extends RecyclerView.Adapter<RecyclerView.ViewHold
      * This will be used each time after setting the user item
      * * */
     protected void sortList(List<UserListItem> list){
-        Comparator comparator = new Comparator<UserListItem>() {
-            @Override
-            public int compare(UserListItem u1, UserListItem u2) {
-                String s1 = "";
-                if(u1 != null && u1.getName() != null) {
-                    s1 = u1.getName();
-                }
-                String s2 = "";
-                if(u2 != null && u2.getName() != null) {
-                    s2 = u2.getName();
-                }
-
-                return s1.compareToIgnoreCase(s2);
+        Comparator comparator = (Comparator<UserListItem>) (u1, u2) -> {
+            String s1 = "";
+            if(u1 != null && u1.getName() != null) {
+                s1 = u1.getName();
             }
+            String s2 = "";
+            if(u2 != null && u2.getName() != null) {
+                s2 = u2.getName();
+            }
+
+            return s1.compareToIgnoreCase(s2);
         };
         Collections.sort(list, comparator);
     }

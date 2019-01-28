@@ -2,76 +2,55 @@ apply plugin: 'com.android.library'
 
 buildscript {
     repositories {
+        google()
+        maven { url "https://jitpack.io" }
         jcenter()
-        mavenCentral()
     }
 
     dependencies {
-        classpath 'com.jfrog.bintray.gradle:gradle-bintray-plugin:1.7.3'
+        classpath "com.jfrog.bintray.gradle:gradle-bintray-plugin:$bintrayVersion"
+        classpath "com.github.dcendents:android-maven-gradle-plugin:$mavenGradleVersion"
     }
 }
 
 apply plugin: 'com.jfrog.bintray'
 
 android {
+
     compileSdkVersion Integer.parseInt(project.ANDROID_COMPILE_SDK_VERSION)
-    buildToolsVersion project.ANDROID_BUILD_TOOLS_VERSION
 
     defaultConfig {
         minSdkVersion Integer.parseInt(project.MIN_SDK)
         targetSdkVersion Integer.parseInt(project.ANDROID_BUILD_TARGET_SDK_VERSION)
-        versionCode 1
-        versionName "1.0"
     }
+
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
 }
 
 dependencies {
-    compile fileTree(dir: 'libs', include: ['*.jar'])
-    compile project(':chat-sdk-core')
-    compile 'com.google.firebase:firebase-storage:' + project.GOOGLE_SERVICES_VERSION
+    implementation fileTree(dir: 'libs', include: ['*.jar'])
+    api project(':chat-sdk-core')
+
+    api "com.google.firebase:firebase-storage:$firebaseStorageVersion"
+
 }
 
-// Bintray upload properties
-Properties properties = new Properties()
-properties.load(project.rootProject.file('local.properties').newDataInputStream())
-if(properties.getProperty('bintray.enabled') != null) {
-
-    group = CHAT_SDK_GROUP
-    version = CHAT_SDK_VERSION
-
-    ext {
-        bintrayRepo = BINTRAY_REPO
-        bintrayName = 'chat-sdk-firebase-file-storage'
-        bintrayUserOrg = BINTRAY_USER_ORG
-
-        publishedGroupId = CHAT_SDK_GROUP
-        libraryName = 'ChatSDKFirebaseFileStorage'
-        artifact = 'chat-sdk-firebase-file-storage'
-
-        libraryDescription = 'Chat SDK Firebase File Storage'
-
-        siteUrl = SITE_URL
-        gitUrl = GIT_URL
-
-        libraryVersion = CHAT_SDK_VERSION
-
-        developerId = DEVELOPER_ID
-        developerName = DEVELOPER_NAME
-        developerEmail = DEVELOPER_EMAIL
-
-        licenseName = LICENSE_NAME
-        licenseUrl = LICENSE_URL
-        allLicenses = ['GPL-3.0']
-    }
-
-    apply from: 'https://raw.githubusercontent.com/chat-sdk/JCenter/master/installv1.gradle'
-    apply from: 'https://raw.githubusercontent.com/chat-sdk/JCenter/master/bintrayv1.gradle'
+ext {
+    bintrayName = 'chat-sdk-firebase-file-storage'
+    libraryName = 'ChatSDKFirebaseFileStorage'
+    artifact = 'chat-sdk-firebase-file-storage'
+    libraryDescription = 'Chat SDK Firebase File Storage'
 }
-
-//apply from: rootProject.file('bintray.gradle')
+def bintrayGradleFile = file("$rootProject.rootDir/gradle/bintray.gradle")
+if (bintrayGradleFile.exists()) {
+    apply from: bintrayGradleFile
+}

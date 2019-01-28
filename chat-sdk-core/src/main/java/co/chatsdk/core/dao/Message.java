@@ -13,23 +13,20 @@ import org.greenrobot.greendao.annotation.Generated;
 import org.greenrobot.greendao.annotation.Id;
 import org.greenrobot.greendao.annotation.ToMany;
 import org.greenrobot.greendao.annotation.ToOne;
-import org.greenrobot.greendao.annotation.Transient;
 import org.greenrobot.greendao.annotation.Unique;
 import org.joda.time.DateTime;
-import org.json.JSONException;
-import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 
-import co.chatsdk.core.session.StorageManager;
 import co.chatsdk.core.interfaces.CoreEntity;
+import co.chatsdk.core.session.ChatSDK;
+import co.chatsdk.core.session.StorageManager;
 import co.chatsdk.core.types.MessageSendStatus;
 import co.chatsdk.core.types.MessageType;
 import co.chatsdk.core.types.ReadStatus;
 import co.chatsdk.core.utils.DaoDateTimeConverter;
-import timber.log.Timber;
 
 @Entity
 public class Message implements CoreEntity {
@@ -41,14 +38,14 @@ public class Message implements CoreEntity {
     @Convert(converter = DaoDateTimeConverter.class, columnType = Long.class)
     private DateTime date;
     private Boolean read;
-    private String resources;
-    private String text;
     private Integer type;
     private Integer status;
     private Long senderId;
     private Long threadId;
+    private Long nextMessageId;
+    private Long lastMessageId;
 
-    @ToMany(referencedJoinProperty = "readReceiptId")
+    @ToMany(referencedJoinProperty = "messageId")
     private List<ReadReceiptUserLink> readReceiptLinks;
 
     @ToOne(joinProperty = "senderId")
@@ -57,12 +54,14 @@ public class Message implements CoreEntity {
     @ToOne(joinProperty = "threadId")
     private Thread thread;
 
-    @Transient
-    public static final String TAG = Message.class.getSimpleName();
+    @ToOne(joinProperty = "nextMessageId")
+    private Message nextMessage;
 
-    // We cache the payload to improve performance
-    @Transient
-    private JSONObject jsonPayload;
+    @ToOne(joinProperty = "lastMessageId")
+    private Message lastMessage;
+
+    @ToMany(referencedJoinProperty = "messageId")
+    private List<MessageMetaValue> metaValues;
 
     /** Used to resolve relations */
     @Generated(hash = 2040040024)
@@ -72,19 +71,19 @@ public class Message implements CoreEntity {
     @Generated(hash = 859287859)
     private transient MessageDao myDao;
 
-    @Generated(hash = 1966433252)
-    public Message(Long id, String entityID, DateTime date, Boolean read, String resources, String text,
-            Integer type, Integer status, Long senderId, Long threadId) {
+    @Generated(hash = 842349170)
+    public Message(Long id, String entityID, DateTime date, Boolean read, Integer type, Integer status,
+            Long senderId, Long threadId, Long nextMessageId, Long lastMessageId) {
         this.id = id;
         this.entityID = entityID;
         this.date = date;
         this.read = read;
-        this.resources = resources;
-        this.text = text;
         this.type = type;
         this.status = status;
         this.senderId = senderId;
         this.threadId = threadId;
+        this.nextMessageId = nextMessageId;
+        this.lastMessageId = lastMessageId;
     }
 
     @Generated(hash = 637306882)
@@ -97,9 +96,26 @@ public class Message implements CoreEntity {
     @Generated(hash = 880682693)
     private transient Long sender__resolvedKey;
 
-    /** Null safe version of getIsRead*/
-    public boolean wasRead() {
-        return read != null && read;
+    @Generated(hash = 992601680)
+    private transient Long nextMessage__resolvedKey;
+
+    @Generated(hash = 88977546)
+    private transient Long lastMessage__resolvedKey;
+
+    public boolean isRead() {
+        ReadStatus status = readStatusForUser(ChatSDK.currentUser());
+        if (status != null && status.is(ReadStatus.read())) {
+            return true;
+        }
+        else if (sender != null && sender.isMe()) {
+            return true;
+        }
+        else if (read == null) {
+            return false;
+        }
+        else {
+            return read;
+        }
     }
 
     @Override
@@ -131,54 +147,74 @@ public class Message implements CoreEntity {
         this.date = date;
     }
 
-    public Boolean getIsRead() {
-        return this.read;
+    public HashMap<String, Object> getMetaValuesAsMap() {
+        HashMap<String, Object> values = new HashMap<>();
+        for (MessageMetaValue v : getMetaValues()) {
+            values.put(v.getKey(), v.getValue());
+        }
+        return values;
     }
 
-    public void setIsRead(Boolean isRead) {
-        this.read = isRead;
+    public void setMetaValues(HashMap<String, Object> json) {
+        for (String key : json.keySet()) {
+            setMetaValue(key, json.get(key));
+        }
     }
 
-    public String getResources() {
-        return this.resources;
+    protected void setMetaValue(String key, Object value) {
+        MessageMetaValue metaValue = (MessageMetaValue) metaValue(key);
+        if (metaValue == null) {
+            metaValue = StorageManager.shared().createEntity(MessageMetaValue.class);
+            metaValue.setMessageId(this.getId());
+            getMetaValues().add(metaValue);
+        }
+        metaValue.setValue(MetaValueHelper.toString(value));
+        metaValue.setKey(key);
+        metaValue.update();
+        update();
     }
 
-    public String getRawJSONPayload() {
-        return this.text;
-    }
-
-    public void setRawJSONPayload (String payload) {
-        this.text = payload;
+    protected MetaValue metaValue (String key) {
+        ArrayList<MetaValue> values = new ArrayList<>();
+        values.addAll(getMetaValues());
+        return MetaValueHelper.metaValueForKey(key, values);
     }
 
     public Object valueForKey (String key) {
-
-        try {
-            String json = getRawJSONPayload();
-            if(json == null || json.length() == 0 ) {
-                return "";
-            }
-            if(jsonPayload == null) {
-                jsonPayload = new JSONObject(json);
-            }
-            if(jsonPayload.has(key)) {
-                return  jsonPayload.get(key);
-            }
-            else {
-                return "";
-            }
+        MetaValue value = metaValue(key);
+        if (value != null && value.getValue() != null) {
+            return MetaValueHelper.toObject(value.getValue());
+        } else {
+            return null;
         }
-        catch (JSONException e) {
-            Timber.v(e.getLocalizedMessage());
-//            e.printStackTrace();
-            return "";
+    }
+
+    public String stringForKey (String key) {
+        Object value = valueForKey(key);
+        if (value == null) return "";
+        if (value instanceof String) {
+            return (String) value;
+        }
+        return value.toString();
+    }
+
+    public Double doubleForKey (String key) {
+        Object value = valueForKey(key);
+        if (value instanceof Double) {
+            return (Double) value;
+        }
+        else {
+            return (double) 0;
         }
     }
 
     public ReadReceiptUserLink linkForUser (User user) {
         for(ReadReceiptUserLink link : getReadReceiptLinks()) {
-            if(link.getUser().equals(user)) {
-                return link;
+            User linkUser = link.getUser();
+            if (linkUser != null && user != null) {
+                if(linkUser.equals(user)) {
+                    return link;
+                }
             }
         }
         return null;
@@ -188,76 +224,32 @@ public class Message implements CoreEntity {
         ReadReceiptUserLink link = linkForUser(user);
         if(link == null) {
             link = StorageManager.shared().createEntity(ReadReceiptUserLink.class);
-            readReceiptLinks.add(link);
-            update();
+            link.setMessageId(this.getId());
+            getReadReceiptLinks().add(link);
         }
         link.setUser(user);
         link.setStatus(status.getValue());
         link.setDate(date);
 
         link.update();
+        update();
     }
 
     public LatLng getLocation () {
-        Double latitude = (Double) valueForKey(Keys.MessageLatitude);
-        Double longitude = (Double) valueForKey(Keys.MessageLongitude);
+        Double latitude = doubleForKey(Keys.MessageLatitude);
+        Double longitude = doubleForKey(Keys.MessageLongitude);
         return new LatLng(latitude, longitude);
     }
 
     public void setValueForKey (Object payload, String key) {
-        try {
-            if(jsonPayload == null) {
-                String jsonString = getRawJSONPayload();
-                jsonPayload = jsonString != null ? new JSONObject(jsonString) : new JSONObject();
-            }
-            jsonPayload.put(key, payload);
-            setRawJSONPayload(jsonPayload.toString());
-        }
-        catch (JSONException e) {
-            Timber.v(e.getLocalizedMessage());
-//            e.printStackTrace();
-        }
+        setMetaValue(key, payload);
     }
 
-    public HashMap<String, Object> values () {
-        HashMap<String, Object> values = new HashMap<>();
-        try {
-            JSONObject json = new JSONObject(getRawJSONPayload());
-
-            for(Iterator<String> iter = json.keys(); iter.hasNext(); ) {
-                String key = iter.next();
-                values.put(key, json.get(key));
-            }
-        }
-        catch (JSONException e) {
-        }
-        finally {
-            return values;
-        }
+    public String getText() {
+        return stringForKey(Keys.MessageText);
     }
 
-    /**
-     * This is used internally - if you want the message text,
-     * you should use getTextString method instead.
-     * @return Raw JSON message payload
-     */
-    public String getText () {
-        return getRawJSONPayload();
-    }
-
-    public String getTextString() {
-        return valueForKey(Keys.MessageText).toString();
-    }
-
-    /**
-     * This is used internally - if you want to set the message text,
-     * you should use setTextString method instead.
-     * @param text Raw JSON message payload
-     */
     public void setText(String text) {
-        setRawJSONPayload(text);
-    }
-    public void setTextString(String text) {
         setValueForKey(text, Keys.MessageText);
     }
 
@@ -267,16 +259,16 @@ public class Message implements CoreEntity {
 
     public MessageType getMessageType() {
         if(this.type != null) {
-            return MessageType.values()[this.type];
+            return new MessageType(this.type);
         }
-        return MessageType.None;
+        return new MessageType(MessageType.None);
     }
 
     public void setType(Integer type) {
         this.type = type;
     }
     public void setMessageType(MessageType type) {
-        this.type = type.ordinal();
+        this.type = type.value();
     }
 
     public Integer getStatus() {
@@ -331,6 +323,9 @@ public class Message implements CoreEntity {
         }
         if(total >= ReadStatus.Read * userCount) {
             status = ReadStatus.Read;
+        }
+        if (total == 0) {
+            status = ReadStatus.None;
         }
         return new ReadStatus(status);
 
@@ -453,10 +448,6 @@ public class Message implements CoreEntity {
         myDao = daoSession != null ? daoSession.getMessageDao() : null;
     }
 
-    public void setResources(String resources) {
-        this.resources = resources;
-    }
-
     /**
      * To-many relationship, resolved on first access (and after reset).
      * Changes to to-many relations are not persisted, make changes to the target entity.
@@ -484,6 +475,108 @@ public class Message implements CoreEntity {
     @Generated(hash = 273652628)
     public synchronized void resetReadReceiptLinks() {
         readReceiptLinks = null;
+    }
+
+    public Long getNextMessageId() {
+        return this.nextMessageId;
+    }
+
+    public void setNextMessageId(Long nextMessageId) {
+        this.nextMessageId = nextMessageId;
+    }
+
+    public Long getLastMessageId() {
+        return this.lastMessageId;
+    }
+
+    public void setLastMessageId(Long lastMessageId) {
+        this.lastMessageId = lastMessageId;
+    }
+
+    /** To-one relationship, resolved on first access. */
+    @Generated(hash = 871948279)
+    public Message getNextMessage() {
+        Long __key = this.nextMessageId;
+        if (nextMessage__resolvedKey == null || !nextMessage__resolvedKey.equals(__key)) {
+            final DaoSession daoSession = this.daoSession;
+            if (daoSession == null) {
+                throw new DaoException("Entity is detached from DAO context");
+            }
+            MessageDao targetDao = daoSession.getMessageDao();
+            Message nextMessageNew = targetDao.load(__key);
+            synchronized (this) {
+                nextMessage = nextMessageNew;
+                nextMessage__resolvedKey = __key;
+            }
+        }
+        return nextMessage;
+    }
+
+    /** called by internal mechanisms, do not call yourself. */
+    @Generated(hash = 1912932494)
+    public void setNextMessage(Message nextMessage) {
+        synchronized (this) {
+            this.nextMessage = nextMessage;
+            nextMessageId = nextMessage == null ? null : nextMessage.getId();
+            nextMessage__resolvedKey = nextMessageId;
+        }
+    }
+
+    /** To-one relationship, resolved on first access. */
+    @Generated(hash = 1697405005)
+    public Message getLastMessage() {
+        Long __key = this.lastMessageId;
+        if (lastMessage__resolvedKey == null || !lastMessage__resolvedKey.equals(__key)) {
+            final DaoSession daoSession = this.daoSession;
+            if (daoSession == null) {
+                throw new DaoException("Entity is detached from DAO context");
+            }
+            MessageDao targetDao = daoSession.getMessageDao();
+            Message lastMessageNew = targetDao.load(__key);
+            synchronized (this) {
+                lastMessage = lastMessageNew;
+                lastMessage__resolvedKey = __key;
+            }
+        }
+        return lastMessage;
+    }
+
+    /** called by internal mechanisms, do not call yourself. */
+    @Generated(hash = 944284900)
+    public void setLastMessage(Message lastMessage) {
+        synchronized (this) {
+            this.lastMessage = lastMessage;
+            lastMessageId = lastMessage == null ? null : lastMessage.getId();
+            lastMessage__resolvedKey = lastMessageId;
+        }
+    }
+
+    /**
+     * To-many relationship, resolved on first access (and after reset).
+     * Changes to to-many relations are not persisted, make changes to the target entity.
+     */
+    @Generated(hash = 2015206446)
+    public List<MessageMetaValue> getMetaValues() {
+        if (metaValues == null) {
+            final DaoSession daoSession = this.daoSession;
+            if (daoSession == null) {
+                throw new DaoException("Entity is detached from DAO context");
+            }
+            MessageMetaValueDao targetDao = daoSession.getMessageMetaValueDao();
+            List<MessageMetaValue> metaValuesNew = targetDao._queryMessage_MetaValues(id);
+            synchronized (this) {
+                if (metaValues == null) {
+                    metaValues = metaValuesNew;
+                }
+            }
+        }
+        return metaValues;
+    }
+
+    /** Resets a to-many relationship, making the next get call to query for a fresh result. */
+    @Generated(hash = 365870950)
+    public synchronized void resetMetaValues() {
+        metaValues = null;
     }
 
 }

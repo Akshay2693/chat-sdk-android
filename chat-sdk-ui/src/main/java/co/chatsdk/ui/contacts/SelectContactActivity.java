@@ -8,13 +8,12 @@
 package co.chatsdk.ui.contacts;
 
 import android.app.AlertDialog;
-import android.content.DialogInterface;
 import android.os.Bundle;
-import android.support.annotation.NonNull;
-import android.support.v7.app.ActionBar;
-import android.support.v7.app.AppCompatActivity;
-import android.support.v7.widget.LinearLayoutManager;
-import android.support.v7.widget.RecyclerView;
+import androidx.annotation.LayoutRes;
+import androidx.appcompat.app.ActionBar;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 import android.text.InputType;
 import android.view.MenuItem;
 import android.view.View;
@@ -33,21 +32,16 @@ import co.chatsdk.core.events.EventType;
 import co.chatsdk.core.events.NetworkEvent;
 import co.chatsdk.core.interfaces.UserListItem;
 import co.chatsdk.core.session.ChatSDK;
-import co.chatsdk.core.session.NM;
 import co.chatsdk.core.session.StorageManager;
 import co.chatsdk.core.utils.UserListItemConverter;
-import co.chatsdk.ui.manager.BaseInterfaceAdapter;
-import co.chatsdk.ui.manager.InterfaceManager;
 import co.chatsdk.ui.R;
 import co.chatsdk.ui.chat.ChatActivity;
 import co.chatsdk.ui.main.BaseActivity;
+import co.chatsdk.core.session.InterfaceManager;
 import co.chatsdk.ui.search.SearchActivity;
 import co.chatsdk.ui.utils.ToastHelper;
 import io.reactivex.Single;
 import io.reactivex.android.schedulers.AndroidSchedulers;
-import io.reactivex.functions.Action;
-import io.reactivex.functions.BiConsumer;
-import io.reactivex.functions.Consumer;
 
 /**
  * Created by itzik on 6/17/2014.
@@ -59,28 +53,28 @@ public class SelectContactActivity extends BaseActivity {
 
     public static final String MODE = "mode";
 
-    private RecyclerView recyclerView;
-    private UsersListAdapter adapter;
-    private Button btnStartChat;
-    private TextView txtSearch;
-    private ImageView imgSearch;
+    protected RecyclerView recyclerView;
+    protected UsersListAdapter adapter;
+    protected Button btnStartChat;
+    protected TextView txtSearch;
+    protected ImageView imgSearch;
 
     /** Default value - MODE_NEW_CONVERSATION*/
     private int mode = MODE_NEW_CONVERSATION;
 
     /** For add to conversation mode.*/
-    private String threadEntityID = "";
+    protected String threadEntityID = "";
 
     /** For add to conversation mode.*/
-    private Thread thread;
+    protected Thread thread;
 
     /** Set true if you want slide down animation for this context exit. */
-    private boolean animateExit = false;
+    protected boolean animateExit = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.chat_sdk_activity_pick_friends);
+
         initActionBar();
 
         if (savedInstanceState != null)
@@ -96,30 +90,22 @@ public class SelectContactActivity extends BaseActivity {
         }
 
         // Refresh the list when the contacts change
-        NM.events().sourceOnMain()
+        ChatSDK.events().sourceOnMain()
                 .filter(NetworkEvent.filterContactsChanged())
-                .subscribe(new Consumer<NetworkEvent>() {
-                    @Override
-                    public void accept(@NonNull NetworkEvent networkEvent) throws Exception {
-                        loadData();
-                    }
-                });
+                .subscribe(networkEvent -> loadData());
 
-        NM.events().sourceOnMain()
+        ChatSDK.events().sourceOnMain()
                 .filter(NetworkEvent.filterType(EventType.UserMetaUpdated))
-                .subscribe(new Consumer<NetworkEvent>() {
-                    @Override
-                    public void accept(@NonNull NetworkEvent networkEvent) throws Exception {
-                        loadData();
-                    }
-                });
+                .subscribe(networkEvent -> loadData());
+
+        setContentView(activityLayout());
 
         initViews();
     }
 
-    private void getDataFromBundle(Bundle bundle){
+    protected void getDataFromBundle(Bundle bundle){
         mode = bundle.getInt(MODE, mode);
-        threadEntityID = bundle.getString(BaseInterfaceAdapter.THREAD_ENTITY_ID, threadEntityID);
+        threadEntityID = bundle.getString(InterfaceManager.THREAD_ENTITY_ID, threadEntityID);
         animateExit = bundle.getBoolean(ChatActivity.ANIMATE_EXIT, animateExit);
     }
 
@@ -135,7 +121,7 @@ public class SelectContactActivity extends BaseActivity {
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        outState.putString(BaseInterfaceAdapter.THREAD_ENTITY_ID, threadEntityID);
+        outState.putString(InterfaceManager.THREAD_ENTITY_ID, threadEntityID);
         outState.putInt(MODE, mode);
         outState.putBoolean(ChatActivity.ANIMATE_EXIT, animateExit);
     }
@@ -150,11 +136,15 @@ public class SelectContactActivity extends BaseActivity {
         return true;
     }
 
-    private void initViews() {
-        recyclerView = (RecyclerView) findViewById(R.id.chat_sdk_list_contacts);
-        txtSearch = (TextView) findViewById(R.id.chat_sdk_et_search);
-        imgSearch = (ImageView) findViewById(R.id.chat_sdk_search_image);
-        btnStartChat = (Button) findViewById(R.id.chat_sdk_btn_add_contacts);
+    protected @LayoutRes int activityLayout() {
+        return R.layout.chat_sdk_activity_pick_friends;
+    }
+
+    protected void initViews() {
+        recyclerView = findViewById(R.id.chat_sdk_list_contacts);
+        txtSearch = findViewById(R.id.chat_sdk_et_search);
+        imgSearch = findViewById(R.id.chat_sdk_search_image);
+        btnStartChat = findViewById(R.id.chat_sdk_btn_add_contacts);
 
         if (mode == MODE_ADD_TO_CONVERSATION) {
             btnStartChat.setText(getResources().getString(R.string.add_users));
@@ -162,7 +152,7 @@ public class SelectContactActivity extends BaseActivity {
 
     }
 
-    private void initList() {
+    protected void initList() {
         boolean enableMultiSelect = ChatSDK.config().groupsEnabled;
         adapter = new UsersListAdapter(enableMultiSelect);
 
@@ -171,47 +161,36 @@ public class SelectContactActivity extends BaseActivity {
 
         loadData();
 
-        adapter.getItemClicks().subscribe(new Consumer<Object>() {
-            @Override
-            public void accept(@NonNull Object item) throws Exception {
-                if(item instanceof User) {
-                    if (ChatSDK.config().groupsEnabled) {
-                        adapter.toggleSelection(item);
-                    }
-                    else {
-                        UserListItem user = (UserListItem) item;
-                        createAndOpenThread("", (User) user, NM.currentUser());
-                    }
+        adapter.getItemClicks().subscribe(item -> {
+            if(item instanceof User) {
+                if (ChatSDK.config().groupsEnabled) {
+                    adapter.toggleSelection(item);
+                }
+                else {
+                    UserListItem user = (UserListItem) item;
+                    createAndOpenThread("", (User) user, ChatSDK.currentUser());
                 }
             }
         });
 
     }
 
-    private void createAndOpenThread (String name, User... users) {
+    protected void createAndOpenThread (String name, User... users) {
         createAndOpenThread(name, Arrays.asList(users));
     }
 
-    private Single<Thread> createAndOpenThread (String name, List<User> users) {
-        return NM.thread().createThread(name, users)
+    protected Single<Thread> createAndOpenThread (String name, List<User> users) {
+        return ChatSDK.thread().createThread(name, users)
                 .observeOn(AndroidSchedulers.mainThread())
-                .doOnSuccess(new Consumer<Thread>() {
-            @Override
-            public void accept(Thread thread) throws Exception {
-                if (thread != null) {
-                    InterfaceManager.shared().a.startChatActivityForID(getApplicationContext(), thread.getEntityID());
-                }
-            }
-        }).doOnError(new Consumer<Throwable>() {
-            @Override
-            public void accept(Throwable throwable) throws Exception {
-                ToastHelper.show(getApplicationContext(), R.string.create_thread_with_users_fail_toast);
-            }
-        });
+                .doOnSuccess(thread -> {
+                    if (thread != null) {
+                        ChatSDK.ui().startChatActivityForID(getApplicationContext(), thread.getEntityID());
+                    }
+                }).doOnError(throwable -> ToastHelper.show(getApplicationContext(), R.string.create_thread_with_users_fail_toast));
     }
 
-    private void loadData () {
-        final List<User> list = NM.contact().contacts();
+    protected void loadData () {
+        final List<User> list = ChatSDK.contact().contacts();
 
         // Removing the users that is already inside the thread.
         if (mode == MODE_ADD_TO_CONVERSATION && !threadEntityID.equals("")){
@@ -240,109 +219,81 @@ public class SelectContactActivity extends BaseActivity {
 
         initList();
 
-        btnStartChat.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
+        btnStartChat.setOnClickListener(v -> {
 
-                if (adapter.getSelectedCount() == 0) {
-                    showToast(getString(R.string.pick_friends_activity_no_users_selected_toast));
-                    return;
-                }
+            if (adapter.getSelectedCount() == 0) {
+                showToast(getString(R.string.pick_friends_activity_no_users_selected_toast));
+                return;
+            }
 
-                if (mode == MODE_ADD_TO_CONVERSATION) {
-                    showProgressDialog( getString(R.string.pick_friends_activity_prog_dialog_add_to_convo_message));
-                }
-                else if (mode == MODE_NEW_CONVERSATION) {
-                    showProgressDialog(getString(R.string.pick_friends_activity_prog_dialog_open_new_convo_message));
-                }
+            if (mode == MODE_ADD_TO_CONVERSATION) {
+                showProgressDialog( getString(R.string.pick_friends_activity_prog_dialog_add_to_convo_message));
+            }
+            else if (mode == MODE_NEW_CONVERSATION) {
+                showProgressDialog(getString(R.string.pick_friends_activity_prog_dialog_open_new_convo_message));
+            }
 
-                final ArrayList<User> users = new ArrayList<>();
+            final ArrayList<User> users = new ArrayList<>();
 
-                users.addAll(UserListItemConverter.toUserList(adapter.getSelectedUsers()));
+            users.addAll(UserListItemConverter.toUserList(adapter.getSelectedUsers()));
 
-                if (mode == MODE_NEW_CONVERSATION) {
-                    users.add(NM.currentUser());
-                    // If there are more than 2 users then show a dialog to enter the name
-                    if(users.size() > 2) {
-                        AlertDialog.Builder builder = new AlertDialog.Builder(SelectContactActivity.this);
-                        builder.setTitle(getString(R.string.pick_friends_activity_prog_group_name_dialog));
+            if (mode == MODE_NEW_CONVERSATION) {
+                users.add(ChatSDK.currentUser());
+                // If there are more than 2 users then show a dialog to enter the name
+                if(users.size() > 2) {
+                    AlertDialog.Builder builder = new AlertDialog.Builder(SelectContactActivity.this);
+                    builder.setTitle(getString(R.string.pick_friends_activity_prog_group_name_dialog));
 
-                        // Set up the input
-                        final EditText input = new EditText(SelectContactActivity.this);
-                        input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
-                        builder.setView(input);
+                    // Set up the input
+                    final EditText input = new EditText(SelectContactActivity.this);
+                    input.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+                    builder.setView(input);
 
-                        // Set up the buttons
-                        builder.setPositiveButton(getString(R.string.create), new DialogInterface.OnClickListener() {
-                            @Override
-                            public void onClick(final DialogInterface dialog, int which) {
-                                SelectContactActivity.this.createAndOpenThread(input.getText().toString(), users)
-                                        .observeOn(AndroidSchedulers.mainThread())
-                                        .subscribe(new BiConsumer<Thread, Throwable>() {
-                                    @Override
-                                    public void accept(Thread thread, Throwable throwable) throws Exception {
-                                        dismissProgressDialog();
-                                        finish();
-                                    }
-                                });
-                            }
-                        });
-                        builder.setNegativeButton(R.string.cancel, new DialogInterface.OnClickListener() {
-                            @Override
-                            public void onClick(DialogInterface dialog, int which) {
-                                dialog.cancel();
-                                dismissProgressDialog();
-                            }
-                        });
-
-                        builder.show();
-
-                    }
-                    else {
-                        createAndOpenThread("", users)
-                                .observeOn(AndroidSchedulers.mainThread())
-                                .subscribe(new BiConsumer<Thread, Throwable>() {
-                            @Override
-                            public void accept(Thread thread, Throwable throwable) throws Exception {
+                    // Set up the buttons
+                    builder.setPositiveButton(getString(R.string.create), (dialog, which) -> SelectContactActivity.this.createAndOpenThread(input.getText().toString(), users)
+                            .observeOn(AndroidSchedulers.mainThread())
+                            .subscribe((thread, throwable) -> {
                                 dismissProgressDialog();
                                 finish();
-                            }
-                        });
-                    }
-                }
-                else if (mode == MODE_ADD_TO_CONVERSATION){
+                            }));
+                    builder.setNegativeButton(R.string.cancel, (dialog, which) -> {
+                        dialog.cancel();
+                        dismissProgressDialog();
+                    });
 
-                    NM.thread().addUsersToThread(thread, users)
+                    builder.show();
+
+                }
+                else {
+                    createAndOpenThread("", users)
                             .observeOn(AndroidSchedulers.mainThread())
-                            .subscribe(new Action() {
-                                @Override
-                                public void run() throws Exception {
-                                    setResult(AppCompatActivity.RESULT_OK);
-                                    dismissProgressDialog();
-                                    finish();
-                                    if (animateExit) {
-                                        overridePendingTransition(R.anim.dummy, R.anim.slide_top_bottom_out);
-                                    }
-                                }
-                            }, new Consumer<Throwable>() {
-                                @Override
-                                public void accept(@NonNull Throwable throwable) throws Exception {
-                                    throwable.printStackTrace();
-                                    dismissProgressDialog();
-                                    setResult(AppCompatActivity.RESULT_CANCELED);
-                                    finish();
-                                }
+                            .subscribe((thread, throwable) -> {
+                                dismissProgressDialog();
+                                finish();
                             });
                 }
             }
+            else if (mode == MODE_ADD_TO_CONVERSATION){
+
+                ChatSDK.thread().addUsersToThread(thread, users)
+                        .observeOn(AndroidSchedulers.mainThread())
+                        .subscribe(() -> {
+                            setResult(AppCompatActivity.RESULT_OK);
+                            dismissProgressDialog();
+                            finish();
+                            if (animateExit) {
+                                overridePendingTransition(R.anim.dummy, R.anim.slide_top_bottom_out);
+                            }
+                        }, throwable -> {
+                            ChatSDK.logError(throwable);
+                            dismissProgressDialog();
+                            setResult(AppCompatActivity.RESULT_CANCELED);
+                            finish();
+                        });
+            }
         });
 
-        View.OnClickListener searchClickListener = new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                SearchActivity.startSearchActivity(getApplicationContext());
-            }
-        };
+        View.OnClickListener searchClickListener = v -> SearchActivity.startSearchActivity(SelectContactActivity.this);
 
         txtSearch.setOnClickListener(searchClickListener);
         imgSearch.setOnClickListener(searchClickListener);

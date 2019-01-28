@@ -2,87 +2,70 @@ apply plugin: 'com.android.library'
 
 buildscript {
     repositories {
+        google()
+        maven { url "https://jitpack.io" }
         jcenter()
-        mavenCentral()
     }
 
     dependencies {
-        classpath 'org.greenrobot:greendao-gradle-plugin:3.2.2'
-        classpath 'com.jfrog.bintray.gradle:gradle-bintray-plugin:1.7.3'
-        classpath 'com.github.dcendents:android-maven-gradle-plugin:1.4.1'
+        classpath "org.greenrobot:greendao-gradle-plugin:$greenDaoVersion"
+        classpath "com.jfrog.bintray.gradle:gradle-bintray-plugin:$bintrayVersion"
+        classpath "com.github.dcendents:android-maven-gradle-plugin:$mavenGradleVersion"
     }
 }
+
 
 apply plugin: 'org.greenrobot.greendao'
 
 android {
 
     compileSdkVersion Integer.parseInt(project.ANDROID_COMPILE_SDK_VERSION)
-    buildToolsVersion project.ANDROID_BUILD_TOOLS_VERSION
 
     defaultConfig {
         minSdkVersion Integer.parseInt(project.MIN_SDK)
         targetSdkVersion Integer.parseInt(project.ANDROID_BUILD_TARGET_SDK_VERSION)
     }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
 }
 
 greendao {
-    schemaVersion 1
+    schemaVersion 7
     targetGenDir "src/main/java"
     daoPackage "co.chatsdk.core.dao"
 }
 
 dependencies {
 
-    compile fileTree(include: ['*.jar'], dir: 'libs')
+//    api fileTree(include: ['*.jar'], dir: 'libs')
 
-    testCompile 'junit:junit:4.12'
-    compile 'org.greenrobot:greendao:3.2.2'
-    compile 'joda-time:joda-time:2.9.4'
-    compile 'com.jakewharton.timber:timber:4.3.1'
-    compile 'com.google.code.gson:gson:2.8.0'
-    compile 'io.reactivex.rxjava2:rxandroid:2.0.1'
-    compile 'io.reactivex.rxjava2:rxjava:2.1.5'
-    compile 'org.apache.commons:commons-lang3:3.3.2'
-    compile 'com.google.android.gms:play-services:' + project.GOOGLE_SERVICES_VERSION
-    compile 'id.zelory:compressor:2.0.0'
+    api "org.greenrobot:greendao:$greenDaoVersion"
+    api "joda-time:joda-time:$jodaTimeVersion"
+    implementation "com.jakewharton.timber:timber:$timberVersion"
+    implementation "com.google.code.gson:gson:$gsonVersion"
+    api "io.reactivex.rxjava2:rxandroid:$rxAndroidVersion"
+    api "io.reactivex.rxjava2:rxjava:$rxJavaVersion"
+    implementation "org.apache.commons:commons-lang3:$apacheCommonsVersion"
+    api "com.google.android.gms:play-services-maps:$playMapsVersion"
+    implementation "androidx.recyclerview:recyclerview:$androidxRecyclerViewVersion"
+
+    implementation "com.facebook.fresco:fresco:$frescoVersion"
+    implementation "id.zelory:compressor:$compressorVersion"
+    api "androidx.lifecycle:lifecycle-extensions:$androidxLifecycleExtensionsVersion"
+
 }
 
-// Bintray upload properties
-Properties properties = new Properties()
-properties.load(project.rootProject.file('local.properties').newDataInputStream())
-if(properties.getProperty('bintray.enabled') != null) {
-
-    group = CHAT_SDK_GROUP
-    version = CHAT_SDK_VERSION
-
-    ext {
-        bintrayRepo = BINTRAY_REPO
-        bintrayName = 'chat-sdk-core'
-        bintrayUserOrg = BINTRAY_USER_ORG
-
-        publishedGroupId = CHAT_SDK_GROUP
-        libraryName = 'ChatSDKCore'
-        artifact = 'chat-sdk-core'
-
-        libraryDescription = 'Chat SDK Core'
-
-        siteUrl = SITE_URL
-        gitUrl = GIT_URL
-
-        libraryVersion = CHAT_SDK_VERSION
-
-        developerId = DEVELOPER_ID
-        developerName = DEVELOPER_NAME
-        developerEmail = DEVELOPER_EMAIL
-
-        licenseName = LICENSE_NAME
-        licenseUrl = LICENSE_URL
-        allLicenses = ['GPL-3.0']
-    }
-
-    apply from: 'https://raw.githubusercontent.com/chat-sdk/JCenter/master/installv1.gradle'
-    apply from: 'https://raw.githubusercontent.com/chat-sdk/JCenter/master/bintrayv1.gradle'
+ext {
+    bintrayName = 'chat-sdk-core'
+    libraryName = 'ChatSDKCore'
+    artifact = 'chat-sdk-core'
+    libraryDescription = 'Chat SDK Core'
 }
 
-
+def bintrayGradleFile = file("$rootProject.rootDir/gradle/bintray.gradle")
+if (bintrayGradleFile.exists()) {
+    apply from: bintrayGradleFile
+}

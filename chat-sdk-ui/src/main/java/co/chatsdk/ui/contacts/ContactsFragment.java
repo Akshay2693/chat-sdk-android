@@ -9,9 +9,9 @@ package co.chatsdk.ui.contacts;
 
 import android.content.Intent;
 import android.os.Bundle;
-import android.support.annotation.NonNull;
-import android.support.v7.widget.LinearLayoutManager;
-import android.support.v7.widget.RecyclerView;
+import androidx.annotation.LayoutRes;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -24,27 +24,23 @@ import android.widget.ProgressBar;
 import java.util.ArrayList;
 import java.util.List;
 
-import co.chatsdk.core.session.NM;
-import co.chatsdk.core.session.StorageManager;
 import co.chatsdk.core.dao.DaoCore;
 import co.chatsdk.core.dao.Thread;
 import co.chatsdk.core.dao.User;
 import co.chatsdk.core.events.EventType;
 import co.chatsdk.core.events.NetworkEvent;
+import co.chatsdk.core.session.ChatSDK;
+import co.chatsdk.core.session.StorageManager;
+import co.chatsdk.core.utils.CrashReportingCompletableObserver;
 import co.chatsdk.core.utils.DisposableList;
 import co.chatsdk.core.utils.UserListItemConverter;
-import co.chatsdk.ui.manager.InterfaceManager;
 import co.chatsdk.ui.R;
 import co.chatsdk.ui.main.BaseFragment;
 import co.chatsdk.ui.search.SearchActivity;
 import co.chatsdk.ui.utils.ToastHelper;
 import io.reactivex.Completable;
-import io.reactivex.CompletableEmitter;
-import io.reactivex.CompletableOnSubscribe;
 import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.disposables.Disposable;
-import io.reactivex.functions.Action;
-import io.reactivex.functions.Consumer;
 import io.reactivex.schedulers.Schedulers;
 import timber.log.Timber;
 
@@ -64,14 +60,10 @@ public class ContactsFragment extends BaseFragment {
 
     public static final int MODE_LOAD_CONTACT_THAT_NOT_IN_THREAD = 1996;
 
-    /** When a user clicked he will be added to the current thread.*/
-    public static final int CLICK_MODE_ADD_USER_TO_THREAD = 2991;
-    /** Used for the share intent, When a user press on a user the attached bundle from the share intent will be sent to the selected user.*/
-    public static final int CLICK_MODE_SHARE_CONTENT = 2992;
     /** Open profile context when user is clicked.*/
-    public static final int CLICK_MODE_SHOW_PROFILE = 2993;
-    /** Nothing happen on list item click.*/
-    public static final int CLICK_MODE_NONE = 2994;
+    public static final int CLICK_MODE_SHOW_PROFILE = 0;
+    /** When a user clicked he will be added to the current thread.*/
+    public static final int CLICK_MODE_ADD_USER_TO_THREAD = 1;
 
     public static final String LOADING_MODE = "Loading_Mode";
     public static final String CLICK_MODE = "Click_Mode";
@@ -84,9 +76,11 @@ public class ContactsFragment extends BaseFragment {
     protected ProgressBar progressBar;
     protected RecyclerView recyclerView;
 
+    private boolean showProfileActivityTransitionStarted = false;
+
     protected Disposable listOnClickListenerDisposable;
 
-    private DisposableList disposables = new DisposableList();
+    protected DisposableList disposables = new DisposableList();
 
     /** Users that will be used to fill the adapter, This could be set manually or it will be filled when loading users for
      * {@link #loadingMode}*/
@@ -105,7 +99,7 @@ public class ContactsFragment extends BaseFragment {
      *  #MODE_LOAD_THREAD_USERS
      *  #MODE_USE_SOURCE
      *  */
-    protected int loadingMode;
+    protected int loadingMode = MODE_LOAD_CONTACTS;
 
     /** Determine what happen after a user is clicked.
      *
@@ -124,7 +118,7 @@ public class ContactsFragment extends BaseFragment {
     protected boolean inflateMenu = true;
 
     /** When isDialog = true the dialog will always show the list of users given to him or pulled by the thread id.*/
-    private boolean isDialog = false;
+    protected boolean isDialog = false;
 
     public static ContactsFragment newInstance() {
         ContactsFragment f = new ContactsFragment();
@@ -155,6 +149,7 @@ public class ContactsFragment extends BaseFragment {
         f.setExtraData(threadID);
         Bundle b = new Bundle();
         f.setArguments(b);
+
         return f;
     }
 
@@ -194,23 +189,13 @@ public class ContactsFragment extends BaseFragment {
             setRetainInstance(true);
         }
 
-        disposables.add(NM.events().sourceOnMain()
+        disposables.add(ChatSDK.events().sourceOnMain()
                 .filter(NetworkEvent.filterContactsChanged())
-                .subscribe(new Consumer<NetworkEvent>() {
-            @Override
-            public void accept(@NonNull NetworkEvent networkEvent) throws Exception {
-                loadData(false);
-            }
-        }));
+                .subscribe(networkEvent -> loadData(false)));
 
-        disposables.add(NM.events().sourceOnMain()
+        disposables.add(ChatSDK.events().sourceOnMain()
                 .filter(NetworkEvent.filterType(EventType.UserPresenceUpdated))
-                .subscribe(new Consumer<NetworkEvent>() {
-                    @Override
-                    public void accept(@NonNull NetworkEvent networkEvent) throws Exception {
-                        loadData(true);
-                    }
-                }));
+                .subscribe(networkEvent -> loadData(true)));
 
     }
 
@@ -225,7 +210,7 @@ public class ContactsFragment extends BaseFragment {
             }
         }
 
-        mainView = inflater.inflate(R.layout.chat_sdk_fragment_contacts, null);
+        mainView = inflater.inflate(activityLayout(), null);
 
         initViews();
 
@@ -241,10 +226,14 @@ public class ContactsFragment extends BaseFragment {
         outState.putBoolean(IS_DIALOG, isDialog);
     }
 
-    public void initViews() {
-        recyclerView = (RecyclerView) mainView.findViewById(R.id.chat_sdk_list_contacts);
+    protected @LayoutRes int activityLayout() {
+        return R.layout.chat_sdk_fragment_contacts;
+    }
 
-        progressBar = (ProgressBar) mainView.findViewById(R.id.chat_sdk_progressbar);
+    public void initViews() {
+        recyclerView = mainView.findViewById(R.id.chat_sdk_list_contacts);
+
+        progressBar = mainView.findViewById(R.id.chat_sdk_progressbar);
 
         // Create the adapter only if null this is here so we wont
         // override the adapter given from the extended class with setAdapter.
@@ -289,21 +278,13 @@ public class ContactsFragment extends BaseFragment {
         final ArrayList<User> originalUserList = new ArrayList<>();
         originalUserList.addAll(sourceUsers);
 
-        reloadUsers().observeOn(AndroidSchedulers.mainThread()).subscribe(new Action() {
-            @Override
-            public void run() throws Exception {
-                if (!originalUserList.equals(sourceUsers) || force) {
-                    adapter.setUsers(UserListItemConverter.toUserItemList(sourceUsers), true);
-                    Timber.v("Update Contact List");
-                }
-                setupListClickMode();
+        Disposable d = reloadUsers().observeOn(AndroidSchedulers.mainThread()).subscribe(() -> {
+            if (!originalUserList.equals(sourceUsers) || force) {
+                adapter.setUsers(UserListItemConverter.toUserItemList(sourceUsers), true);
+                Timber.v("Update Contact List");
             }
-        }, new Consumer<Throwable>() {
-            @Override
-            public void accept(@NonNull Throwable throwable) throws Exception {
-                throwable.printStackTrace();
-            }
-        });
+            setupListClickMode();
+        }, throwable -> ChatSDK.logError(throwable));
     }
 
     @Override
@@ -313,105 +294,96 @@ public class ContactsFragment extends BaseFragment {
         }
     }
 
-    private void setupListClickMode() {
+    protected void setupListClickMode() {
         if(listOnClickListenerDisposable != null) {
             listOnClickListenerDisposable.dispose();
         }
-        listOnClickListenerDisposable = adapter.getItemClicks().subscribe(new Consumer<Object>() {
-            @Override
-            public void accept(@NonNull Object o) throws Exception {
-                if(o instanceof User) {
-                    final User clickedUser = (User) o;
+        listOnClickListenerDisposable = adapter.getItemClicks().subscribe(o -> {
+            if(o instanceof User) {
+                final User clickedUser = (User) o;
 
-                    switch (clickMode) {
-                        case CLICK_MODE_ADD_USER_TO_THREAD:
+                switch (clickMode) {
+                    case CLICK_MODE_ADD_USER_TO_THREAD:
 
-                            Thread thread = null;
-                            if (extraData instanceof Long) {
-                                thread = StorageManager.shared().fetchThreadWithID((Long) extraData);
-                            }
-                            else if (extraData instanceof String) {
-                                thread = StorageManager.shared().fetchThreadWithEntityID((String) extraData);
-                            }
+                        Thread thread = null;
+                        if (extraData instanceof Long) {
+                            thread = StorageManager.shared().fetchThreadWithID((Long) extraData);
+                        }
+                        else if (extraData instanceof String) {
+                            thread = StorageManager.shared().fetchThreadWithEntityID((String) extraData);
+                        }
 
-                            if(thread != null) {
-                                NM.thread().addUsersToThread(thread, clickedUser)
-                                        .observeOn(AndroidSchedulers.mainThread())
-                                        .subscribe(new Action() {
-                                            @Override
-                                            public void run() throws Exception {
-                                                ToastHelper.show(getContext(), getString(R.string.abstract_contact_fragment_user_added_to_thread_toast_success) + clickedUser.getName());
-                                                if (isDialog) {
-                                                    getDialog().dismiss();
-                                                }
-                                            }
-                                        }, new Consumer<Throwable>() {
-                                            @Override
-                                            public void accept(@NonNull Throwable throwable) throws Exception {
-                                                throwable.printStackTrace();
-                                                ToastHelper.show(getContext(), getString(R.string.abstract_contact_fragment_user_added_to_thread_toast_fail));
-                                            }
-                                        });
-                            }
-                            break;
-
-                        case CLICK_MODE_NONE:
-                            break;
-                        default:
-                            InterfaceManager.shared().a.startProfileActivity(getContext(), clickedUser.getEntityID());
+                        if(thread != null) {
+                            ChatSDK.thread().addUsersToThread(thread, clickedUser)
+                                    .observeOn(AndroidSchedulers.mainThread())
+                                    .subscribe(() -> {
+                                        ToastHelper.show(getContext(), getString(R.string.abstract_contact_fragment_user_added_to_thread_toast_success) + clickedUser.getName());
+                                        if (isDialog) {
+                                            getDialog().dismiss();
+                                        }
+                                    }, throwable -> {
+                                        ChatSDK.logError(throwable);
+                                        ToastHelper.show(getContext(), getString(R.string.abstract_contact_fragment_user_added_to_thread_toast_fail));
+                                    });
+                        }
+                        break;
+                    case CLICK_MODE_SHOW_PROFILE:
+                    default: {
+                        if (!showProfileActivityTransitionStarted) {
+                            ChatSDK.ui().startProfileActivity(getContext(), clickedUser.getEntityID());
+                            showProfileActivityTransitionStarted = true;
+                        }
                     }
                 }
             }
         });
     }
 
-    private Completable reloadUsers () {
-        return Completable.create(new CompletableOnSubscribe() {
-            @Override
-            public void subscribe(@NonNull CompletableEmitter e) throws Exception {
-                if (loadingMode != MODE_USE_SOURCE) {
+    protected Completable reloadUsers () {
+        return Completable.create(e -> {
+            if (loadingMode != MODE_USE_SOURCE) {
 
-                    sourceUsers.clear();
-                   // If this is not a dialog we will load the contacts of the user.
-                    switch (loadingMode) {
-                        case MODE_LOAD_CONTACTS:
-                            sourceUsers.addAll(NM.contact().contacts());
-                            Timber.d("Contacts: " + sourceUsers.size());
-                            break;
+                sourceUsers.clear();
+               // If this is not a dialog we will load the contacts of the user.
+                switch (loadingMode) {
+                    case MODE_LOAD_CONTACTS:
+                        sourceUsers.addAll(ChatSDK.contact().contacts());
+                        Timber.d("Contacts: " + sourceUsers.size());
+                        break;
 
-                        case MODE_LOAD_THREAD_USERS:
-                            Thread thread = DaoCore.fetchEntityWithEntityID(Thread.class, extraData);
+                    case MODE_LOAD_THREAD_USERS:
+                        Thread thread = DaoCore.fetchEntityWithEntityID(Thread.class, extraData);
 
-                            // Remove the current user from the list.
-                            List<User> users = thread.getUsers();
-                            users.remove(NM.currentUser());
+                        // Remove the current user from the list.
+                        List<User> users = thread.getUsers();
+                        users.remove(ChatSDK.currentUser());
 
-                            sourceUsers.addAll(users);
-                            break;
+                        sourceUsers.addAll(users);
+                        break;
 
-                        case MODE_LOAD_CONTACT_THAT_NOT_IN_THREAD:
-                            List<User> users1 = NM.contact().contacts();
-                            thread = StorageManager.shared().fetchThreadWithID((Long) extraData);
-                            List<User> threadUser = thread.getUsers();
-                            users1.removeAll(threadUser);
-                            sourceUsers.addAll(users1);
-                            break;
-                    }
+                    case MODE_LOAD_CONTACT_THAT_NOT_IN_THREAD:
+                        List<User> users1 = ChatSDK.contact().contacts();
+                        thread = StorageManager.shared().fetchThreadWithID((Long) extraData);
+                        List<User> threadUser = thread.getUsers();
+                        users1.removeAll(threadUser);
+                        sourceUsers.addAll(users1);
+                        break;
                 }
-                e.onComplete();
             }
+            e.onComplete();
         }).subscribeOn(Schedulers.single());
     }
 
     @Override
     public void onResume() {
         super.onResume();
+        showProfileActivityTransitionStarted = false;
         loadData(true);
     }
 
     @Override
     public void reloadData() {
-        reloadUsers().subscribe();
+        reloadUsers().subscribe(new CrashReportingCompletableObserver());
     }
 
     @Override

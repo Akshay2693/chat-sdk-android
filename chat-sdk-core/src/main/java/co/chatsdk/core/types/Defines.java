@@ -13,12 +13,8 @@ public class Defines {
     public static final String DIVIDER = ",";
 
     public static final class MessageDateFormat {
-        public static final String YearOldMessageFormat = "MM/yy";
-        public static final String DayOldFormat = "MMM dd";
-        public static final String LessThenDayFormat = "HH:mm";
     }
 
     public static final String FROM_PUSH = "from_push";
-    public static final String MSG_TIMESTAMP = "timestamp";
 
 }

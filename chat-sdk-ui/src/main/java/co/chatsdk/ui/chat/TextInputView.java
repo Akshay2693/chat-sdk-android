@@ -7,7 +7,12 @@
 
 package co.chatsdk.ui.chat;
 
+import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Context;
+import android.content.ContextWrapper;
+import android.graphics.Rect;
+import androidx.appcompat.widget.AppCompatImageButton;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
@@ -22,15 +27,23 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import java.lang.ref.WeakReference;
+import java.util.Date;
+import java.util.concurrent.TimeUnit;
 
 import co.chatsdk.core.audio.Recording;
+import co.chatsdk.core.session.ChatSDK;
+import co.chatsdk.core.utils.PermissionRequestHandler;
 import co.chatsdk.core.utils.StringChecker;
 import co.chatsdk.ui.R;
 import co.chatsdk.ui.utils.InfiniteToast;
+import co.chatsdk.ui.utils.ToastHelper;
+import io.reactivex.Observable;
+import io.reactivex.android.schedulers.AndroidSchedulers;
+import io.reactivex.disposables.Disposable;
 
 public class TextInputView extends LinearLayout implements View.OnKeyListener, TextView.OnEditorActionListener{
 
-    protected ImageButton btnSend;
+    protected AppCompatImageButton btnSend;
     protected ImageButton btnOptions;
     protected EditText etMessage;
     protected boolean audioModeEnabled = false;
@@ -38,6 +51,10 @@ public class TextInputView extends LinearLayout implements View.OnKeyListener, T
     protected Recording recording = null;
     protected InfiniteToast toast;
     protected WeakReference<TextInputDelegate> delegate;
+    protected Rect rect;
+    protected Date recordingStart;
+    protected Disposable toastUpdateDisposable;
+    protected boolean audioMaxLengthReached = false;
 
     public TextInputView(Context context) {
         super(context);
@@ -63,9 +80,20 @@ public class TextInputView extends LinearLayout implements View.OnKeyListener, T
     }
 
     protected void initViews(){
-        btnSend = (ImageButton) findViewById(R.id.chat_sdk_btn_chat_send_message);
-        btnOptions = (ImageButton) findViewById(R.id.chat_sdk_btn_options);
-        etMessage = (EditText) findViewById(R.id.chat_sdk_et_message_to_send);
+        btnSend = findViewById(R.id.chat_sdk_btn_chat_send_message);
+        btnOptions = findViewById(R.id.chat_sdk_btn_options);
+        etMessage = findViewById(R.id.chat_sdk_et_message_to_send);
+    }
+
+    protected Activity getActivity() {
+        Context context = getContext();
+        while (context instanceof ContextWrapper) {
+            if (context instanceof Activity) {
+                return (Activity)context;
+            }
+            context = ((ContextWrapper)context).getBaseContext();
+        }
+        return null;
     }
 
     @Override
@@ -73,73 +101,51 @@ public class TextInputView extends LinearLayout implements View.OnKeyListener, T
         super.onFinishInflate();
         initViews();
 
+
         if (isInEditMode()) {
             return;
         }
 
-        btnSend.setOnClickListener(new OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                if(!recordOnPress) {
-                    if (delegate != null) {
-                        delegate.get().onSendPressed(getMessageText());
-                    }
+        btnSend.setOnClickListener(view -> {
+            if(!recordOnPress) {
+                if (delegate != null) {
+                    delegate.get().onSendPressed(getMessageText());
                 }
             }
         });
 
         // Handle recording when the record button is held down
-        btnSend.setOnTouchListener(new OnTouchListener() {
-            @Override
-            public boolean onTouch(View view, MotionEvent motionEvent) {
-                if(recordOnPress) {
-
-                    // Start recording when we press down
-                    if(motionEvent.getAction() == MotionEvent.ACTION_DOWN) {
-                        recording = new Recording();
-                        recording.start();
-                        toast = new InfiniteToast(getContext(), R.string.recording, true);
-                    }
-
-                    // Stop recording
-                    if(motionEvent.getAction() == MotionEvent.ACTION_UP) {
-                        if(recording != null) {
-                            recording.stop();
-                            if(delegate != null) {
-                                delegate.get().sendAudio(recording);
-                                recording = null;
-                            }
+        btnSend.setOnTouchListener((view, motionEvent) ->  {
+            if(recordOnPress) {
+                Disposable d = PermissionRequestHandler.shared().requestRecordAudio(getActivity())
+                        .concatWith(PermissionRequestHandler.shared().requestWriteExternalStorage(getActivity())).subscribe(() -> {
+                        // Start recording when we press down
+                        if (motionEvent.getAction() == MotionEvent.ACTION_DOWN) {
+                            startRecording(view);
                         }
-                        if(toast != null) {
-                            toast.cancel();
+
+                        // Stop recording
+                        if (motionEvent.getAction() == MotionEvent.ACTION_UP) {
+                            stopRecording(view, motionEvent);
                         }
-                    }
-                }
-                return btnSend.onTouchEvent(motionEvent);
+                }, throwable -> ToastHelper.show(getContext(), throwable.getLocalizedMessage()));
             }
+            return btnSend.onTouchEvent(motionEvent);
         });
 
-        btnOptions.setOnClickListener(new OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                showOption();
-            }
-        });
+        btnOptions.setOnClickListener(view -> showOption());
 
         etMessage.setOnEditorActionListener(this);
         etMessage.setOnKeyListener(this);
         etMessage.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
 
-        etMessage.setOnFocusChangeListener(new OnFocusChangeListener() {
-            @Override
-            public void onFocusChange(View view, boolean focus) {
-                if(delegate != null) {
-                    if(focus) {
-                        delegate.get().onKeyboardShow();
-                    }
-                    else {
-                        delegate.get().onKeyboardHide();
-                    }
+        etMessage.setOnFocusChangeListener((view, focus) -> {
+            if(delegate != null) {
+                if(focus) {
+                    delegate.get().onKeyboardShow();
+                }
+                else {
+                    delegate.get().onKeyboardHide();
                 }
             }
         });
@@ -165,6 +171,88 @@ public class TextInputView extends LinearLayout implements View.OnKeyListener, T
 
     }
 
+    public void startRecording (View view) {
+
+        audioMaxLengthReached = false;
+
+        recording = new Recording();
+        recording.start().subscribe(() -> toast = new InfiniteToast(getContext(), R.string.recording, false));
+
+        rect = new Rect(view.getLeft(), view.getTop(), view.getRight(), view.getBottom());
+        recordingStart = new Date();
+
+        toastUpdateDisposable = Observable.interval(0, 1000, TimeUnit.MILLISECONDS).observeOn(AndroidSchedulers.mainThread()).subscribe(aLong -> {
+            long remainingTime = ChatSDK.config().audioMessageMaxLengthSeconds - (new Date().getSeconds() - recordingStart.getSeconds());
+            if (remainingTime <= 10) {
+                toast.setText(String.format(getContext().getString(R.string.seconds_remaining__), remainingTime));
+            }
+            if (remainingTime <= 0) {
+                audioMaxLengthReached = true;
+                this.presentAlertView();
+            }
+        });
+
+    }
+
+    public void presentAlertView () {
+        finishRecording();
+        toast.hide();
+
+        AlertDialog.Builder builder = new AlertDialog.Builder(this.getContext());
+        builder.setTitle(getContext().getString(R.string.audio_length_limit_reached));
+
+        // Set up the buttons
+        builder.setPositiveButton(getContext().getString(R.string.send), (dialog, which) -> {
+            delegate.get().sendAudio(recording);
+            recording = null;
+            dialog.cancel();
+            audioMaxLengthReached = false;
+        });
+        builder.setNegativeButton(R.string.cancel, (dialog, which) -> {
+            dialog.cancel();
+            audioMaxLengthReached = false;
+        });
+
+        builder.show();
+
+    }
+
+    public void stopRecording (View view, MotionEvent motionEvent) {
+
+        if (audioMaxLengthReached) {
+            return;
+        }
+
+        finishRecording();
+        if(recording != null) {
+            if(delegate != null && recording.getDurationMillis() > 1000) {
+                if(!rect.contains(view.getLeft() + (int) motionEvent.getX(), view.getTop() + (int) motionEvent.getY())){
+                    // User moved outside bounds
+                    ToastHelper.show(getContext(), getContext().getString(R.string.recording_cancelled));
+                }
+                else {
+                    delegate.get().sendAudio(recording);
+                }
+            }
+            else {
+                ToastHelper.show(getContext(), getContext().getString(R.string.recording_too_short));
+            }
+            recording = null;
+        }
+    }
+
+    public void finishRecording () {
+        if(recording != null) {
+            recording.stop();
+        }
+        if(toast != null) {
+            toast.cancel();
+        }
+        if (toastUpdateDisposable != null) {
+            toastUpdateDisposable.dispose();
+        }
+    }
+
     public void setAudioModeEnabled (boolean audioEnabled) {
         audioModeEnabled = audioEnabled;
         updateSendButton();
@@ -172,11 +260,11 @@ public class TextInputView extends LinearLayout implements View.OnKeyListener, T
 
     public void updateSendButton () {
         if(StringChecker.isNullOrEmpty(getMessageText()) && audioModeEnabled) {
-            btnSend.setBackgroundResource(R.drawable.ic_36_mic);
+            btnSend.setImageResource(R.drawable.ic_36_mic);
             recordOnPress = true;
         }
         else {
-            btnSend.setBackgroundResource(R.drawable.ic_36_send);
+            btnSend.setImageResource(R.drawable.ic_36_send);
             recordOnPress = false;
         }
     }

@@ -1,19 +1,14 @@
 package co.chatsdk.core.audio;
 
 import android.media.MediaPlayer;
-import android.support.annotation.NonNull;
-
-import com.google.android.gms.drive.events.CompletionListener;
-import com.google.android.gms.tasks.OnCompleteListener;
 
 import java.util.concurrent.TimeUnit;
-import java.util.logging.Handler;
 
 import io.reactivex.Observable;
 import io.reactivex.android.schedulers.AndroidSchedulers;
 import io.reactivex.disposables.Disposable;
-import io.reactivex.functions.Consumer;
 import io.reactivex.schedulers.Schedulers;
+import timber.log.Timber;
 
 /**
  * Created by ben on 9/28/17.
@@ -34,21 +29,13 @@ public class AudioPlayer {
 
             playingDisposable = Observable.interval(0, 200, TimeUnit.MILLISECONDS)
                     .subscribeOn(Schedulers.single())
-                    .subscribe(new Consumer<Long>() {
-                        @Override
-                        public void accept(@NonNull Long aLong) throws Exception {
-                            if(progressListener != null && player != null) {
-                                final int pos = player.getCurrentPosition();
+                    .subscribe(aLong -> {
+                        if(progressListener != null && player != null) {
+                            final int pos = player.getCurrentPosition();
 
-                                AndroidSchedulers.mainThread().scheduleDirect(new Runnable() {
-                                    @Override
-                                    public void run() {
-                                        progressListener.update(pos);
-                                    }
-                                });
-                            }
+                            AndroidSchedulers.mainThread().scheduleDirect(() -> progressListener.update(pos));
                         }
-                    });
+                    }, throwable -> Timber.v(throwable.getMessage()));
 
             player.setOnCompletionListener(completionListener);
         }
@@ -123,12 +110,7 @@ public class AudioPlayer {
 
     public void setPosition (final int position) {
         if(player != null) {
-            Schedulers.single().scheduleDirect(new Runnable() {
-                @Override
-                public void run() {
-                    player.seekTo(position);
-                }
-            });
+            Schedulers.single().scheduleDirect(() -> player.seekTo(position));
         }
     }
 

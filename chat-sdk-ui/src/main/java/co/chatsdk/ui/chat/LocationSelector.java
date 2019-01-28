@@ -2,7 +2,7 @@ package co.chatsdk.ui.chat;
 
 import android.app.Activity;
 import android.content.Intent;
-import android.support.v7.app.AppCompatActivity;
+import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.gms.common.GooglePlayServicesRepairableException;
 import com.google.android.gms.location.places.Place;
@@ -17,8 +17,8 @@ public class LocationSelector {
 
     public static final int PICK_LOCATION = 102;
 
-    private Result resultHandler;
-    private Activity activity;
+    protected Result resultHandler;
+    protected Activity activity;
 
     public interface Result {
         void result (String snapshotPath, LatLng latLng);
@@ -41,7 +41,7 @@ public class LocationSelector {
        // Intent intent = new Intent(context, ChatSDKLocationActivity.class);
     }
 
-    private void processPickedLocation(int resultCode, Intent data) throws Exception {
+    protected void processPickedLocation(int resultCode, Intent data) throws Exception {
         if (resultCode == AppCompatActivity.RESULT_OK) {
             // Send the message, Params Latitude, Longitude, Base64 Representation of the messageImageView of the location, threadId.
             if(resultHandler != null) {

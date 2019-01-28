@@ -8,7 +8,7 @@
 package co.chatsdk.ui.threads;
 
 import android.content.Context;
-import android.support.v7.widget.RecyclerView;
+import androidx.recyclerview.widget.RecyclerView;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -24,8 +24,9 @@ import co.chatsdk.core.dao.DaoCore;
 import co.chatsdk.core.dao.Message;
 import co.chatsdk.core.dao.Thread;
 import co.chatsdk.core.interfaces.ThreadType;
-import co.chatsdk.ui.R;
+import co.chatsdk.core.session.ChatSDK;
 import co.chatsdk.core.utils.Strings;
+import co.chatsdk.ui.R;
 import io.reactivex.Observable;
 import io.reactivex.subjects.PublishSubject;
 
@@ -37,11 +38,11 @@ public class ThreadsListAdapter extends RecyclerView.Adapter<ThreadViewHolder> {
 
     protected List<Thread> threads = new ArrayList<>();
 
-    private HashMap<Thread, String> typing = new HashMap<>();
+    protected HashMap<Thread, String> typing = new HashMap<>();
     protected PublishSubject<Thread> onClickSubject = PublishSubject.create();
     protected PublishSubject<Thread> onLongClickSubject = PublishSubject.create();
 
-    public ThreadsListAdapter(Context context){
+    public ThreadsListAdapter(Context context) {
         this.context = new WeakReference(context);
     }
 
@@ -59,46 +60,38 @@ public class ThreadsListAdapter extends RecyclerView.Adapter<ThreadViewHolder> {
 
         holder.nameTextView.setText(Strings.nameForThread(thread));
 
-        holder.itemView.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                onClickSubject.onNext(thread);
-            }
-        });
+        holder.itemView.setOnClickListener(view -> onClickSubject.onNext(thread));
 
-        holder.itemView.setOnLongClickListener(new View.OnLongClickListener() {
-            @Override
-            public boolean onLongClick(View view) {
-                onLongClickSubject.onNext(thread);
-                return true;
-            }
+        holder.itemView.setOnLongClickListener(view -> {
+            onLongClickSubject.onNext(thread);
+            return true;
         });
 
         Date lastMessageAddedDate = thread.getLastMessageAddedDate();
-        if(lastMessageAddedDate != null) {
+        if (lastMessageAddedDate != null) {
             holder.dateTextView.setText(getLastMessageDateAsString(lastMessageAddedDate));
 
             Message message = thread.getLastMessage();
-            if(message == null) {
+            if (message == null) {
                 List<Message> messages = thread.getMessagesWithOrder(DaoCore.ORDER_DESC, 1);
-                if(messages.size() > 0) {
+                if (messages.size() > 0) {
                     message = messages.get(0);
                     thread.setLastMessage(message);
                     thread.update();
                 }
             }
 
+
             holder.lastMessageTextView.setText(getLastMessageText(message));
         }
 
-        if(typing.get(thread) != null) {
-            // TODO: Localize
-            holder.lastMessageTextView.setText(typing.get(thread) + context.get().getString(R.string.typing));
+        if (typing.get(thread) != null) {
+            holder.lastMessageTextView.setText(String.format(context.get().getString(R.string.__typing), typing.get(thread)));
         }
 
         int unreadMessageCount = thread.getUnreadMessagesCount();
 
-        if (unreadMessageCount != 0 && thread.typeIs(ThreadType.Private)) {
+        if (unreadMessageCount != 0 && (thread.typeIs(ThreadType.Private) || ChatSDK.config().unreadMessagesCountForPublicChatRoomsEnabled)) {
 
             holder.unreadMessageCountTextView.setText(String.valueOf(unreadMessageCount));
             holder.unreadMessageCountTextView.setVisibility(View.VISIBLE);
@@ -114,7 +107,7 @@ public class ThreadsListAdapter extends RecyclerView.Adapter<ThreadViewHolder> {
     }
 
     public String getLastMessageDateAsString (Date date) {
-        if(date != null) {
+        if (date != null) {
             return Strings.dateTime(date);
         }
         return null;
@@ -122,7 +115,8 @@ public class ThreadsListAdapter extends RecyclerView.Adapter<ThreadViewHolder> {
 
     public String getLastMessageText (Message lastMessage) {
         String messageText = Strings.t(R.string.no_messages);
-        if(lastMessage != null) {
+        if (lastMessage != null) {
+
             messageText = Strings.payloadAsString(lastMessage);
         }
         return messageText;
@@ -138,21 +132,26 @@ public class ThreadsListAdapter extends RecyclerView.Adapter<ThreadViewHolder> {
         return threads.size();
     }
 
-    public void addRow (Thread thread, boolean notify) {
-        if(!threads.contains(thread)) {
-            threads.add(thread);
-            if(notify) {
-                notifyDataSetChanged();
+    public boolean addRow (Thread thread, boolean notify) {
+        for (Thread t : threads) {
+            if (t.getEntityID().equals(thread.getEntityID())) {
+                return false;
             }
         }
+
+        threads.add(thread);
+        if (notify) {
+            notifyDataSetChanged();
+        }
+        return true;
     }
 
-    public void addRow(Thread thread){
+    public void addRow(Thread thread) {
         addRow(thread, true);
     }
 
     public void setTyping (Thread thread, String message) {
-        if(message != null) {
+        if (message != null) {
             typing.put(thread, message);
         }
         else {
@@ -160,7 +159,7 @@ public class ThreadsListAdapter extends RecyclerView.Adapter<ThreadViewHolder> {
         }
     }
 
-    protected void sort(){
+    protected void sort() {
         Collections.sort(threads, new ThreadSorter());
     }
 
@@ -170,7 +169,7 @@ public class ThreadsListAdapter extends RecyclerView.Adapter<ThreadViewHolder> {
 
     public void clearData (boolean notify) {
         threads.clear();
-        if(notify) {
+        if (notify) {
             notifyDataSetChanged();
         }
     }
@@ -183,12 +182,24 @@ public class ThreadsListAdapter extends RecyclerView.Adapter<ThreadViewHolder> {
         return onLongClickSubject;
     }
 
+
+    public void updateThreads (List<Thread> threads) {
+        boolean added = false;
+        for (Thread t : threads) {
+            added = addRow(t, false) || added;
+        }
+        // Maybe the last message has changed. I think this can lead to a race condition
+        // Which causes the thread not to update when a new message comes in
+//        if (added) {
+            sort();
+            notifyDataSetChanged();
+//        }
+    }
+
     public void setThreads(List<Thread> threads) {
         clearData(false);
-        for(Thread t : threads) {
-            addRow(t, false);
-        }
-        sort();
-        notifyDataSetChanged();
+        updateThreads(threads);
     }
+
+
 }

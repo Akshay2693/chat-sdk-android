@@ -23,6 +23,7 @@ public interface ThreadHandler {
     Single<Thread> createThread(List<User> users);
     Single<Thread> createThread(String name, User... users);
     Single<Thread> createThread(String name, List<User> users, int type);
+    Single<Thread> createThread(String name, List<User> users, int type, String entityID);
     /**
      * Remove users from a thread
      */
@@ -47,6 +48,8 @@ public interface ThreadHandler {
     Completable deleteThread(Thread thread);
     Completable leaveThread (Thread thread);
     Completable joinThread (Thread thread);
+
+    Completable deleteMessage (Message message);
 
     /**
      * Send different types of message to a particular thread
@@ -75,4 +78,5 @@ public interface ThreadHandler {
     void sendLocalSystemMessage(String text, CoreHandler.bSystemMessageType type, Thread thread);
 
     Completable pushThread(Thread thread);
+    Completable pushThreadMeta(Thread thread);
 }

@@ -10,48 +10,36 @@ package co.chatsdk.ui.main;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
-import android.support.design.widget.TabLayout;
-import android.support.v4.view.ViewPager;
+import androidx.annotation.LayoutRes;
+import com.google.android.material.tabs.TabLayout;
+import androidx.viewpager.widget.ViewPager;
 import android.view.Menu;
 import android.view.MenuItem;
 
 import org.apache.commons.lang3.StringUtils;
 
+import java.util.List;
+
 import co.chatsdk.core.Tab;
 import co.chatsdk.core.events.EventType;
 import co.chatsdk.core.events.NetworkEvent;
-import co.chatsdk.core.interfaces.ThreadType;
 import co.chatsdk.core.session.ChatSDK;
-import co.chatsdk.core.session.NM;
+import co.chatsdk.core.session.InterfaceManager;
 import co.chatsdk.core.utils.DisposableList;
-import co.chatsdk.core.utils.PermissionRequestHandler;
 import co.chatsdk.ui.R;
-import co.chatsdk.ui.helpers.ExitHelper;
-import co.chatsdk.ui.helpers.NotificationUtils;
-import co.chatsdk.ui.helpers.OpenFromPushChecker;
-import co.chatsdk.ui.manager.BaseInterfaceAdapter;
-import co.chatsdk.ui.manager.InterfaceManager;
-import co.chatsdk.ui.threads.PrivateThreadsFragment;
-import io.reactivex.Completable;
-import io.reactivex.functions.Action;
-import io.reactivex.functions.Consumer;
 
 
 public class MainActivity extends BaseActivity {
 
-    private ExitHelper exitHelper;
-    private TabLayout tabLayout;
-    private ViewPager viewPager;
+    protected TabLayout tabLayout;
+    protected ViewPager viewPager;
     protected PagerAdapterTabs adapter;
-    private OpenFromPushChecker mOpenFromPushChecker;
 
-    DisposableList disposables = new DisposableList();
+    protected DisposableList disposableList = new DisposableList();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-
-        exitHelper = new ExitHelper(this);
 
         if ((getIntent().getFlags() & Intent.FLAG_ACTIVITY_BROUGHT_TO_FRONT) != 0) {
             // Activity was brought to front and not created,
@@ -60,117 +48,33 @@ public class MainActivity extends BaseActivity {
             return;
         }
 
-        setContentView(R.layout.chat_sdk_activity_view_pager);
+        setContentView(activityLayout());
 
         initViews();
 
-        mOpenFromPushChecker = new OpenFromPushChecker();
-        if(mOpenFromPushChecker.checkOnCreate(getIntent(), savedInstanceState)) {
-            String threadEntityID = getIntent().getExtras().getString(BaseInterfaceAdapter.THREAD_ENTITY_ID);
-            InterfaceManager.shared().a.startChatActivityForID(this, threadEntityID);
-        }
+        launchFromPush(getIntent().getExtras());
+    }
 
-        requestPermissionSafely(requestExternalStorage().doFinally(new Action() {
-            @Override
-            public void run() throws Exception {
-                requestPermissionSafely(requestMicrophoneAccess().doFinally(new Action() {
-                    @Override
-                    public void run() throws Exception {
-                        requestPermissionSafely(requestReadContacts().doFinally(new Action() {
-                            @Override
-                            public void run() throws Exception {
-                                //requestVideoAccess().subscribe();
-                            }
-                        }));
-                    }
-                }));
+    public void launchFromPush (Bundle bundle) {
+        if (bundle != null) {
+            String threadID = bundle.getString(InterfaceManager.THREAD_ENTITY_ID);
+            if (threadID != null && !threadID.isEmpty()) {
+                ChatSDK.ui().startChatActivityForID(getBaseContext(), threadID);
             }
-        }));
-
-    }
-
-    public void requestPermissionSafely (Completable c) {
-        c.subscribe(new Action() {
-            @Override
-            public void run() throws Exception {
-
-            }
-        }, new Consumer<Throwable>() {
-            @Override
-            public void accept(Throwable throwable) throws Exception {
-                throwable.printStackTrace();
-            }
-        });
-    }
-
-    public Completable requestMicrophoneAccess () {
-        if(NM.audioMessage() != null) {
-            return PermissionRequestHandler.shared().requestRecordAudio(this);
         }
-        return Completable.complete();
-    }
-
-    public Completable requestExternalStorage () {
-//        if(NM.audioMessage() != null) {
-            return PermissionRequestHandler.shared().requestReadExternalStorage(this);
-//        }
-//        return Completable.complete();
-    }
-
-    public Completable requestVideoAccess () {
-        if(NM.videoMessage() != null) {
-            return PermissionRequestHandler.shared().requestVideoAccess(this);
-        }
-        return Completable.complete();
-    }
-
-    public Completable requestReadContacts () {
-        if(NM.contact() != null) {
-            return PermissionRequestHandler.shared().requestReadContact(this);
-        }
-        return Completable.complete();
-    }
-
-
-    @Override
-    public void onRequestPermissionsResult(int requestCode, String permissions[], int[] grantResults) {
-        PermissionRequestHandler.shared().onRequestPermissionsResult(requestCode, permissions, grantResults);
     }
 
     @Override
     protected void onResume() {
         super.onResume();
 
-        disposables.dispose();
+        disposableList.dispose();
 
-        // TODO: Check this
-        disposables.add(NM.events().sourceOnMain()
-                .filter(NetworkEvent.filterType(EventType.MessageAdded))
-                .filter(NetworkEvent.filterThreadType(ThreadType.Private))
-                .subscribe(new Consumer<NetworkEvent>() {
-                    @Override
-                    public void accept(NetworkEvent networkEvent) throws Exception {
-                        if(networkEvent.message != null) {
-                            if(!networkEvent.message.getSender().isMe()) {
-                                // Only show the alert if we'recyclerView not on the private threads tab
-                                if(!(adapter.getTabs().get(viewPager.getCurrentItem()).fragment instanceof PrivateThreadsFragment)) {
-                                    NotificationUtils.createMessageNotification(MainActivity.this, networkEvent.message);
-                                }
-                            }
-                        }
-                    }
-                }));
-
-        disposables.add(NM.events().sourceOnMain()
+        disposableList.add(ChatSDK.events().sourceOnMain()
                 .filter(NetworkEvent.filterType(EventType.Logout))
-                .subscribe(new Consumer<NetworkEvent>() {
-                    @Override
-                    public void accept(NetworkEvent networkEvent) throws Exception {
-                        clearData();
-                    }
-                }));
+                .subscribe(networkEvent -> clearData()));
 
-
+        updateLocalNotificationsForTab();
         reloadData();
 
     }
@@ -178,37 +82,30 @@ public class MainActivity extends BaseActivity {
     @Override
     protected void onPause () {
         super.onPause();
-        disposables.dispose();
+        disposableList.dispose();
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        
-        if (mOpenFromPushChecker == null) {
-            mOpenFromPushChecker = new OpenFromPushChecker();
-        }
 
-        if (mOpenFromPushChecker.checkOnNewIntent(intent)) {
-            String threadEntityID = intent.getExtras().getString(BaseInterfaceAdapter.THREAD_ENTITY_ID);
-            if(threadEntityID != null) {
-                InterfaceManager.shared().a.startChatActivityForID(this, threadEntityID);
-            }
-        }
+        launchFromPush(intent.getExtras());
+
     }
 
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        //outState.putInt(PAGE_ADAPTER_POS, pageAdapterPos);
-        mOpenFromPushChecker.onSaveInstanceState(outState);
     }
 
-    private void initViews() {
+    protected @LayoutRes int activityLayout() {
+        return R.layout.chat_sdk_activity_view_pager;
+    }
 
-        viewPager = (ViewPager) findViewById(R.id.pager);
+    protected void initViews() {
+        viewPager = findViewById(R.id.pager);
 
-        tabLayout = (TabLayout) findViewById(R.id.tab_layout);
+        tabLayout = findViewById(R.id.tab_layout);
         tabLayout.setTabMode(TabLayout.MODE_SCROLLABLE);
 
         // Only creates the adapter if it wasn't initiated already
@@ -216,9 +113,12 @@ public class MainActivity extends BaseActivity {
             adapter = new PagerAdapterTabs(getSupportFragmentManager());
         }
 
-        for (Tab tab : adapter.getTabs()) {
+        final List<Tab> tabs = adapter.getTabs();
+        for (Tab tab : tabs) {
             tabLayout.addTab(tabLayout.newTab().setText(tab.title));
         }
+
+        ((BaseFragment) tabs.get(0).fragment).setTabVisibility(true);
 
         viewPager.setAdapter(adapter);
 
@@ -227,6 +127,14 @@ public class MainActivity extends BaseActivity {
             @Override
             public void onTabSelected(TabLayout.Tab tab) {
                 viewPager.setCurrentItem(tab.getPosition());
+
+                updateLocalNotificationsForTab();
+
+                // We mark the tab as visible. This lets us be more efficient with updates
+                // because we only
+                for(int i = 0; i < tabs.size(); i++) {
+                    ((BaseFragment) tabs.get(i).fragment).setTabVisibility(i == tab.getPosition());
+                }
             }
 
             @Override
@@ -240,29 +148,21 @@ public class MainActivity extends BaseActivity {
             }
         });
 
-//        tabLayout.setViewPager(viewPager);
-//
-//        // TODO: Check this - whenever we change tabLayout, we set the user online
-//        tabLayout.setOnPageChangeListener(new ViewPager.OnPageChangeListener() {
-//            @Override
-//            public void onPageScrolled(int position, float positionOffset, int positionOffsetPixels) {
-//
-//            }
-//
-//            @Override
-//            public void onPageSelected(int position) {
-//                NM.core().setUserOnline();
-//            }
-//
-//            @Override
-//            public void onPageScrollStateChanged(int state) {
-//
-//            }
-//        });
-
         viewPager.setOffscreenPageLimit(3);
+    }
 
+    public void updateLocalNotificationsForTab () {
+        TabLayout.Tab tab = tabLayout.getTabAt(tabLayout.getSelectedTabPosition());
+        ChatSDK.ui().setLocalNotificationHandler(thread -> showLocalNotificationsForTab(tab));
+    }
 
+    public boolean showLocalNotificationsForTab (TabLayout.Tab tab) {
+        // Don't show notifications on the threads tabs
+        Tab t = adapter.getTabs().get(tab.getPosition());
+
+        Class privateThreadsFragmentClass = ChatSDK.ui().privateThreadsFragment().getClass();
+
+        return !t.fragment.getClass().isAssignableFrom(privateThreadsFragmentClass);
     }
 
     public void clearData () {
@@ -310,12 +210,6 @@ public class MainActivity extends BaseActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-    }
-
-    /* Exit Stuff*/
-    @Override
-    public void onBackPressed() {
-        exitHelper.triggerExit();
     }
 
 }

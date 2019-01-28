@@ -9,23 +9,22 @@ package co.chatsdk.ui.main;
 
 import android.app.ProgressDialog;
 import android.os.Bundle;
-import android.support.v4.app.DialogFragment;
-import android.support.v7.app.AppCompatActivity;
+import androidx.fragment.app.DialogFragment;
 import android.view.LayoutInflater;
-import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 
-import co.chatsdk.core.session.NM;
+import co.chatsdk.core.session.ChatSDK;
 
 /**
  * Created by itzik on 6/17/2014.
  */
 public abstract class BaseFragment extends DialogFragment {
 
-    private ProgressDialog progressDialog;
+    protected ProgressDialog progressDialog;
 
     protected View mainView;
+    protected boolean tabIsVisible;
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
@@ -43,12 +42,9 @@ public abstract class BaseFragment extends DialogFragment {
     }
 
     public void setupTouchUIToDismissKeyboard(View view, final Integer... exceptIDs) {
-        BaseActivity.setupTouchUIToDismissKeyboard(view, new View.OnTouchListener() {
-            @Override
-            public boolean onTouch(View v, MotionEvent event) {
-                BaseActivity.hideSoftKeyboard((AppCompatActivity) getActivity());
-                return false;
-            }
+        BaseActivity.setupTouchUIToDismissKeyboard(view, (v, event) -> {
+            BaseActivity.hideSoftKeyboard(getActivity());
+            return false;
         }, exceptIDs);
     }
 
@@ -67,20 +63,24 @@ public abstract class BaseFragment extends DialogFragment {
         }
     }
 
+    public void setTabVisibility (boolean isVisible) {
+        tabIsVisible = isVisible;
+    }
+
     protected void dismissProgressDialog() {
         try {
             if (progressDialog != null && progressDialog.isShowing()) {
                 progressDialog.dismiss();
             }
         } catch (Exception e) {
+            ChatSDK.logError(e);
             // For handling orientation changed.
-            e.printStackTrace();
         }
     }
 
     abstract public void clearData ();
     public void safeReloadData () {
-        if(getView() != null && NM.auth().userAuthenticated()) {
+        if(getView() != null && ChatSDK.auth().userAuthenticated()) {
             reloadData();
         }
     }

@@ -9,36 +9,25 @@ import java.util.Date;
 import java.util.List;
 import java.util.UUID;
 
-import co.chatsdk.core.dao.DaoCore;
 import co.chatsdk.core.dao.Message;
 import co.chatsdk.core.dao.Thread;
 import co.chatsdk.core.dao.User;
-import co.chatsdk.core.dao.UserThreadLink;
-import co.chatsdk.core.dao.UserThreadLinkDao;
 import co.chatsdk.core.dao.sorter.ThreadsSorter;
-import co.chatsdk.core.defines.FirebaseDefines;
 import co.chatsdk.core.handlers.CoreHandler;
 import co.chatsdk.core.handlers.ThreadHandler;
 import co.chatsdk.core.interfaces.ThreadType;
 import co.chatsdk.core.rx.ObservableConnector;
-import co.chatsdk.core.session.NM;
+import co.chatsdk.core.session.ChatSDK;
 import co.chatsdk.core.session.StorageManager;
 import co.chatsdk.core.types.MessageSendProgress;
 import co.chatsdk.core.types.MessageSendStatus;
 import co.chatsdk.core.types.MessageType;
 import io.reactivex.Completable;
 import io.reactivex.Observable;
-import io.reactivex.ObservableEmitter;
 import io.reactivex.ObservableOnSubscribe;
-import io.reactivex.ObservableSource;
 import io.reactivex.Single;
-import io.reactivex.SingleEmitter;
 import io.reactivex.SingleOnSubscribe;
-import io.reactivex.functions.Action;
-import io.reactivex.functions.Consumer;
-import io.reactivex.functions.Function;
 import io.reactivex.schedulers.Schedulers;
-import timber.log.Timber;
 
 
 /**
@@ -48,16 +37,14 @@ import timber.log.Timber;
 public abstract class AbstractThreadHandler implements ThreadHandler {
 
     public Single<List<Message>> loadMoreMessagesForThread(final Message fromMessage, final Thread thread) {
-        return Single.create(new SingleOnSubscribe<List<Message>>() {
-            @Override
-            public void subscribe(final SingleEmitter<List<Message>> e) throws Exception {
+        return Single.create((SingleOnSubscribe<List<Message>>) e -> {
 
-                Date messageDate = fromMessage != null ? fromMessage.getDate().toDate() : new Date();
+            //
+            Date messageDate = fromMessage != null ? fromMessage.getDate().toDate() : null;
 
-                // First try to load the messages from the database
-                List<Message> list = StorageManager.shared().fetchMessagesForThreadWithID(thread.getId(), FirebaseDefines.NumberOfMessagesPerBatch + 1, messageDate);
-                e.onSuccess(list);
-            }
+            // First try to load the messages from the database
+            List<Message> list = StorageManager.shared().fetchMessagesForThreadWithID(thread.getId(), ChatSDK.config().messagesToLoadPerBatch + 1, messageDate);
+            e.onSuccess(list);
         }).subscribeOn(Schedulers.single());
     }
 
@@ -71,33 +58,33 @@ public abstract class AbstractThreadHandler implements ThreadHandler {
      * When done or when an error occurred the calling method will be notified.
      */
     public Observable<MessageSendProgress> sendMessageWithText(final String text, final Thread thread) {
-        return Observable.create(new ObservableOnSubscribe<MessageSendProgress>() {
-            @Override
-            public void subscribe(final ObservableEmitter<MessageSendProgress> e) throws Exception {
+        return Observable.create((ObservableOnSubscribe<MessageSendProgress>) e -> {
 
-                final Message message = newMessage(MessageType.Text, thread);
-                message.setTextString(text);
+            final Message message = newMessage(MessageType.Text, thread);
+            message.setText(text);
 
-                e.onNext(new MessageSendProgress(message));
+            e.onNext(new MessageSendProgress(message));
 
-                ObservableConnector<MessageSendProgress> connector = new ObservableConnector<>();
-                connector.connect(implSendMessage(message), e);
+            ObservableConnector<MessageSendProgress> connector = new ObservableConnector<>();
+            connector.connect(implSendMessage(message), e);
 
-            }
         }).subscribeOn(Schedulers.single());
 
     }
 
-    public static Message newMessage (MessageType type, Thread thread) {
-        Message message = new Message();
-        DaoCore.createEntity(message);
-        message.setSender(NM.currentUser());
+    public static Message newMessage (int type, Thread thread) {
+        Message message = StorageManager.shared().createEntity(Message.class);
+        message.setSender(ChatSDK.currentUser());
         message.setMessageStatus(MessageSendStatus.Sending);
         message.setDate(new DateTime(System.currentTimeMillis()));
         message.setEntityID(UUID.randomUUID().toString());
-        message.setMessageType(type);
+        message.setType(type);
         thread.addMessage(message);
         return message;
+    }
+
+    public static Message newMessage (MessageType type, Thread thread) {
+        return newMessage(type.ordinal(), thread);
     }
 
     /**
@@ -105,41 +92,24 @@ public abstract class AbstractThreadHandler implements ThreadHandler {
      * send method so it can be sent via the network
      */
     public Observable<MessageSendProgress> implSendMessage(final Message message) {
-        return Observable.create(new ObservableOnSubscribe<MessageSendProgress>() {
-            @Override
-            public void subscribe(ObservableEmitter<MessageSendProgress> e) throws Exception {
-                message.update();
-                message.getThread().update();
-                e.onNext(new MessageSendProgress(message));
-                e.onComplete();
-            }
-        }).flatMap(new Function<MessageSendProgress, ObservableSource<MessageSendProgress>>() {
-            @Override
-            public ObservableSource<MessageSendProgress> apply(MessageSendProgress messageSendProgress) throws Exception {
-                return handleMessageSend(message, sendMessage(message));
-            }
-        }).subscribeOn(Schedulers.single()).doOnComplete(new Action() {
-            @Override
-            public void run() throws Exception {
-                Timber.v("Complete");
-            }
-        });
-    }
+        return Observable.create((ObservableOnSubscribe<MessageSendProgress>) e -> {
+            message.update();
+            message.getThread().update();
 
-    public static Observable<MessageSendProgress> handleMessageSend (final Message message, Observable<MessageSendProgress> messageSendObservable) {
-        return messageSendObservable.doOnComplete(new Action() {
-            @Override
-            public void run() throws Exception {
-                message.setMessageStatus(MessageSendStatus.Sent);
-                message.update();
+            if (ChatSDK.encryption() != null) {
+                ChatSDK.encryption().encrypt(message);
             }
-        }).doOnError(new Consumer<Throwable>() {
-            @Override
-            public void accept(Throwable throwable) throws Exception {
-                message.setMessageStatus(MessageSendStatus.Failed);
-                message.update();
-            }
-        }).subscribeOn(Schedulers.single());
+
+            e.onNext(new MessageSendProgress(message));
+            e.onComplete();
+        }).concatWith(sendMessage(message))
+                .subscribeOn(Schedulers.single()).doOnComplete(() -> {
+                    message.setMessageStatus(MessageSendStatus.Sent);
+                    message.update();
+                }).doOnError(throwable -> {
+                    message.setMessageStatus(MessageSendStatus.Failed);
+                    message.update();
+                });
     }
 
     public int getUnreadMessagesAmount(boolean onePerThread){
@@ -179,32 +149,36 @@ public abstract class AbstractThreadHandler implements ThreadHandler {
         return getThreads(type, false);
     }
 
-    public List<Thread> getThreads(int type, boolean allowDeleted){
+    public List<Thread> getThreads(int type, boolean allowDeleted) {
+        return getThreads(type, allowDeleted, ChatSDK.config().showEmptyChats);
+    }
+
+    public List<Thread> getThreads(int type, boolean allowDeleted, boolean showEmpty){
 
         if(ThreadType.isPublic(type)) {
             return StorageManager.shared().fetchThreadsWithType(ThreadType.PublicGroup);
         }
 
         // We may access this method post authentication
-        if(NM.currentUser() == null) {
+        if(ChatSDK.currentUser() == null) {
             return new ArrayList<>();
         }
 
-        List<UserThreadLink> links = DaoCore.fetchEntitiesWithProperty(UserThreadLink.class, UserThreadLinkDao.Properties.UserId, NM.currentUser().getId());
+        List<Thread> threads = StorageManager.shared().fetchThreadsForUserWithID(ChatSDK.currentUser().getId());
 
-        List<Thread> threads = new ArrayList<>();
-
-        // Pull the threads out of the link object . . . if only gDao supported manyToMany . . .
-        for (UserThreadLink link : links) {
-            if(link.getThread().typeIs(type) && (!link.getThread().getDeleted() || allowDeleted)) {
-                threads.add(link.getThread());
+        List<Thread> filteredThreads = new ArrayList<>();
+        for(Thread thread : threads) {
+            if(thread.typeIs(type) && (!thread.getDeleted() || allowDeleted)) {
+                if (showEmpty || thread.getMessages().size() > 0) {
+                    filteredThreads.add(thread);
+                }
             }
         }
 
         // Sort the threads list before returning
-        Collections.sort(threads, new ThreadsSorter());
+        Collections.sort(filteredThreads, new ThreadsSorter());
 
-        return threads;
+        return filteredThreads;
     }
 
     public void sendLocalSystemMessage(String text, Thread thread) {
